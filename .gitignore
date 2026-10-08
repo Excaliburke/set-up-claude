@@ -1,0 +1,3 @@
+# Built apps and release files live in GitHub Releases, not in the code.
+dist/
+.DS_Store
