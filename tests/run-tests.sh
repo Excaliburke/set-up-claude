@@ -383,7 +383,7 @@ echo "1. A fresh Mac where everything works"
 new_sandbox
 run_setup
 check "finishes successfully" exit_is 0
-check "says Claude is ready" has "$T/output.txt" "Claude is ready"
+check "says Your tools are ready" has "$T/output.txt" "Your tools are ready"
 check "adds the PATH block to ~/.zshrc once" count_is "$T/home/.zshrc" '>>> Claude setup >>>' 1
 check "installs Claude Code" test -x "$T/home/.local/bin/claude"
 check "copies the Claude app to Applications" test -d "$T/apps/Claude.app"
@@ -532,7 +532,7 @@ check "shows the step that's running as a spinner" has "$T/state/dialog-commands
 check "flags steps that need the person" has "$T/state/dialog-commands" "^listitem: index: 4, status: error, statustext: Needs you — sign in using your browser"
 check "progress text follows the current step" has "$T/state/dialog-commands" "^progresstext: Install the Claude app"
 check "shows the sign-in link in the window" has "$T/state/dialog-commands" "open the sign-in page"
-check "shows the ready screen" has "$T/state/dialog-final-args" "Claude is ready"
+check "shows the ready screen" has "$T/state/dialog-final-args" "Your tools are ready"
 end_sandbox
 
 echo "13. Setup window: failure, then Get help from Claude"
@@ -639,7 +639,7 @@ check "finishes successfully" exit_is 0
 check "sends the app the list of steps" has "$T/output.txt" "^@@steps${TAB}Check your Mac|Install Git.*|Set up Git|Set up GitHub|Sign in to the Claude app|Final check$"
 check "sends step updates" has "$T/output.txt" "^@@step${TAB}2${TAB}success${TAB}Added to"
 check "sends the sign-in instructions" has "$T/output.txt" "^@@message${TAB}.*open the sign-in page"
-check "sends the ready screen" has "$T/output.txt" "^@@final${TAB}success${TAB}Claude is ready${TAB}"
+check "sends the ready screen" has "$T/output.txt" "^@@final${TAB}success${TAB}Your tools are ready${TAB}"
 check "doesn't download swiftDialog (the app draws the window)" lacks "$T/state/curl.log" "github.com"
 check "tells people to keep the window open, not Terminal" lacks "$T/output.txt" "Terminal window open until"
 end_sandbox
@@ -781,7 +781,7 @@ rm "$T/state/gh_auth"
 echo hang > "$T/state/gh_login_mode"
 run_setup CLAUDE_SETUP_GITHUB_TIMEOUT=4
 check "finishes successfully" exit_is 0
-check "says Claude is ready" has "$T/output.txt" "Claude is ready"
+check "says Your tools are ready" has "$T/output.txt" "Your tools are ready"
 check "explains the sign-in didn't finish" has "$T/output.txt" "GitHub sign-in didn't finish"
 check "says how to sign in later" has "$T/output.txt" "Sign in later with: gh auth login --web"
 check "the final check only warns about it" has "$T/output.txt" "Final check — Everything works except the GitHub sign-in"

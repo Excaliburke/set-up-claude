@@ -39,7 +39,7 @@ final class SetupRunner: ObservableObject {
     static let shared = SetupRunner()
 
     static let welcome = """
-    This sets up Claude on your Mac: the Claude app, Claude Code, Git, and the GitHub CLI. It takes about 10 to 20 minutes, and most of it runs by itself.
+    This sets up your tools on your Mac: the Claude app, Claude Code, Git, and the GitHub CLI. It takes about 10 to 20 minutes, and most of it runs by itself.
 
     A few steps need you when they come up: clicking **Install** in Apple's window, **signing in** with your work account in your browser, and **signing in to GitHub**.
 
@@ -59,7 +59,7 @@ final class SetupRunner: ObservableObject {
         "Final check",
     ]
 
-    @Published var heading = "Set up Claude"
+    @Published var heading = "Set up your tools"
     @Published var message = SetupRunner.welcome
     @Published var steps: [Step] = SetupRunner.makeSteps(SetupRunner.initialTitles)
     @Published var details = ""
@@ -110,7 +110,7 @@ final class SetupRunner: ObservableObject {
         }
 
         steps = Self.makeSteps(Self.initialTitles)
-        heading = "Set up Claude"
+        heading = "Set up your tools"
         details = ""
 
         let process = Process()
@@ -532,7 +532,7 @@ struct FoldView: View {
 // under it, and the window shows through. A click skips it.
 struct Splash: View {
     let onDone: () -> Void
-    static let tagline = "Claude set up, one fold at a time"
+    static let tagline = "Your journey unfolds"
     // When the window first shows it, not when it was made: the first launch
     // can take a second or two to put the window on screen.
     @State private var start: Date?

@@ -100,6 +100,7 @@ check "the replacement is still signed by the same developer" sh -c "codesign -d
 check "the updated app reopened by itself" [ -n "$new_pid" ]
 check "no update files were left next to the app" sh -c "! ls -a '$U' | grep -q 'update-'"
 [ -n "$new_pid" ] && kill "$new_pid" 2>/dev/null
+kill "$old_pid" 2>/dev/null
 
 echo
 echo "Updating: a copy with the old name comes back as Origami.app"
@@ -121,6 +122,8 @@ check "the update is installed as Origami.app" [ -d "$U3/Origami.app" ]
 check "the copy with the old name is gone" [ ! -e "$U3/Set Up Claude.app" ]
 check "Origami reopened by itself" [ -n "$new_pid" ]
 [ -n "$new_pid" ] && kill "$new_pid" 2>/dev/null
+# If the update was refused, the old copy is still open.
+kill "$old_pid" 2>/dev/null
 
 echo
 echo "Updating: a download that doesn't match its checksum is refused"

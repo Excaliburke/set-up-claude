@@ -2,9 +2,9 @@
 
 <img src="screenshots/icon.png" width="128" alt="Origami's icon: a page of notebook paper folded into the start of a paper airplane, on a coral sky">
 
-*Claude set up, one fold at a time.*
+*Your journey unfolds.*
 
-Origami (formerly Set Up Claude) sets up a Mac for Claude: the Claude app, Claude Code (the `claude` command in Terminal), Apple's developer tools, which include Git, and the GitHub CLI (`gh`). Every step shows in one window. If something fails, it opens Claude with a message describing what happened, so the person can troubleshoot with Claude's help.
+Origami (formerly Set Up Claude) sets up your tools on a Mac: the Claude app, Claude Code (the `claude` command in Terminal), Apple's developer tools, which include Git, and the GitHub CLI (`gh`). Every step shows in one window. If something fails, it opens Claude with a message describing what happened, so the person can troubleshoot with Claude's help.
 
 It's built for Northeastern University's Claude Enterprise accounts. The organization and plan it checks for are settings, so other teams can change them.
 
@@ -18,7 +18,7 @@ It runs as the person themselves. Nothing needs IT, Jamf, or an admin password. 
 
 The download link above always gives the newest version. A message you can send:
 
-> To set up Claude on your Mac:
+> To set up your tools on your Mac:
 > 1. Download Origami: https://github.com/Excaliburke/set-up-claude/releases/latest/download/Origami.zip
 > 2. Double-click the zip to unzip it, then open **Origami**. macOS asks if you're sure you want to open it; click **Open**.
 > 3. Click **Start setup** and follow the window.
@@ -51,7 +51,7 @@ Each step shows gray dots while it waits its turn, a spinner while it runs, a ha
 
 **Details** shows the setup's own output, like a Terminal window would. While setup runs, the window can't be closed by accident, and quitting asks first.
 
-At the end the window says **Claude is ready**, with anything left to do, or **Setup didn't finish**, with **Get help from Claude**:
+At the end the window says **Your tools are ready**, with anything left to do, or **Setup didn't finish**, with **Get help from Claude**:
 
 ![The app after a failed step](screenshots/app-didnt-finish.png)
 

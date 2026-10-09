@@ -365,7 +365,7 @@ set_step() {
 }
 
 intro_message() {
-  printf '%s' "**Setting up Claude on your Mac.** This takes about 10 to 20 minutes, and most of it runs by itself.
+  printf '%s' "**Setting up your tools.** This takes about 10 to 20 minutes, and most of it runs by itself.
 
 A few steps need you when they come up: clicking **Install** in Apple's window, **signing in** with your $ORG_LABEL account in your browser, and **signing in to GitHub**.
 
@@ -436,7 +436,7 @@ ui_start() {
   CMD_FILE="$RUN_DIR/window-commands.log"
   : > "$CMD_FILE"
   local args=(
-    --title "Set up Claude"
+    --title "Set up your tools"
     --message "$(intro_message)"
     --messagefont "size=14"
     --icon none
@@ -1537,7 +1537,7 @@ $doctor"
 
   printf '%s' "Claude setup report
 
-I'm setting up Claude on my Mac with my team's setup tool, and something didn't finish. I'm not technical. Please help me fix it one step at a time: tell me exactly what to click, or give me one command at a time to paste into Terminal, and ask me to paste back what I see.
+I'm setting up my tools (Claude, Claude Code, Git and GitHub) on my Mac with my team's setup tool, and something didn't finish. I'm not technical. Please help me fix it one step at a time: tell me exactly what to click, or give me one command at a time to paste into Terminal, and ask me to paste back what I see.
 
 $body
 
@@ -1670,14 +1670,14 @@ finish() {
 Use your **$ORG_LABEL** account wherever you sign in.}
 
 To use Claude Code in Terminal, open a **new** Terminal window and type **claude**."
-    say "${C_BOLD}Claude is ready.${C_OFF}"
+    say "${C_BOLD}Your tools are ready.${C_OFF}"
     [ -n "$github" ] && say "GitHub: $github"
     [ -n "$todo" ] && printf 'Still to do:%s\n' "${todo//\*\*/}"
     say "To use Claude Code in Terminal, open a new Terminal window and type: claude"
     say "Log: $(tilde "$LOG_FILE")"
-    app_event final success "Claude is ready" "$msg"
+    app_event final success "Your tools are ready" "$msg"
     if [ -n "$DIALOG_BIN" ]; then
-      ui_final "Claude is ready" "$msg" "SF=checkmark.circle.fill,colour=green" "Done"
+      ui_final "Your tools are ready" "$msg" "SF=checkmark.circle.fill,colour=green" "Done"
     fi
     return 0
   fi
