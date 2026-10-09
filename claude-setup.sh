@@ -56,7 +56,7 @@ RERUN_TEXT="${CLAUDE_SETUP_RERUN_TEXT:-}"
 # ---- Fixed values ----------------------------------------------------------
 
 # Set by release.sh from the VERSION file.
-SETUP_VERSION="1.0.0"
+SETUP_VERSION="1.1.0"
 # The newest release's copy of this script, and its description of itself.
 SCRIPT_URL="https://github.com/Excaliburke/set-up-claude/releases/latest/download/claude-setup.sh"
 LATEST_RELEASE_URL="${CLAUDE_SETUP_LATEST_RELEASE_URL:-https://github.com/Excaliburke/set-up-claude/releases/latest/download/latest.json}"
