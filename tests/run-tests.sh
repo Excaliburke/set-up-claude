@@ -120,7 +120,7 @@ case "$url" in
   *latest.json)
     # The newest GitHub release, when a test sets one.
     if [ -f "$SANDBOX/state/latest_version" ]; then
-      printf '{"version": "%s", "url": "https://example.invalid/Set-Up-Claude.zip", "sha256": "0"}' "$(cat "$SANDBOX/state/latest_version")" > "$out"
+      printf '{"version": "%s", "url": "https://example.invalid/Origami.zip", "sha256": "0"}' "$(cat "$SANDBOX/state/latest_version")" > "$out"
       exit 0
     fi
     echo "curl: (22) The requested URL returned error: 404" >&2; exit 22 ;;
@@ -630,9 +630,9 @@ check "asks for swiftDialog 3.1.0" has "$T/state/curl.log" "dialog-3.1.0"
 end_sandbox
 
 TAB=$'\t'
-APP_RERUN="open the Set Up Claude app again and click Start setup"
+APP_RERUN="open the Origami app again and click Start setup"
 
-echo "22. Inside the Set Up Claude app: a fresh Mac"
+echo "22. Inside the Origami app: a fresh Mac"
 new_sandbox
 run_setup CLAUDE_SETUP_UI=app CLAUDE_SETUP_WINDOW=1 < /dev/null
 check "finishes successfully" exit_is 0

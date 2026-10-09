@@ -14,7 +14,7 @@
 # or after downloading the file:
 #   bash ~/Downloads/claude-setup.sh
 #
-# The Set Up Claude app runs this same script; see README.md.
+# The Origami app runs this same script; see README.md.
 #
 # Running it again is safe. Steps that already worked are skipped.
 #
@@ -43,13 +43,13 @@ USE_WINDOW="${CLAUDE_SETUP_WINDOW:-1}"
 # priority over the Enterprise sign-in and cause confusing errors.
 TURN_OFF_API_KEYS="${CLAUDE_SETUP_TURN_OFF_API_KEYS:-1}"
 
-# ---- Set by the Set Up Claude app ------------------------------------------
+# ---- Set by the Origami app ------------------------------------------------
 
-# "app" means the Set Up Claude app draws the window. This tool then reports
+# "app" means the Origami app draws the window. This tool then reports
 # progress as lines starting with "@@" and reads the person's choice ("help" or
 # "close") on standard input.
 UI_MODE="${CLAUDE_SETUP_UI:-}"
-# How to run setup again, as a phrase such as "open the Set Up Claude app again
+# How to run setup again, as a phrase such as "open the Origami app again
 # and click Start setup". Takes priority over RERUN_COMMAND.
 RERUN_TEXT="${CLAUDE_SETUP_RERUN_TEXT:-}"
 
@@ -307,7 +307,7 @@ ui_message() {
   app_event message "$1"
 }
 
-# Sends one event to the Set Up Claude app: "@@" and tab-separated fields, with
+# Sends one event to the Origami app: "@@" and tab-separated fields, with
 # newlines written as \n.
 app_event() {
   [ "$UI_MODE" = app ] || return 0

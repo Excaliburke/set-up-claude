@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# Builds "Set Up Claude.app": a small Mac app that runs claude-setup.sh and
+# Builds "Origami.app": a small Mac app that runs claude-setup.sh and
 # shows its progress in one window, so nobody needs Terminal.
 #
 #   bash app/build-app.sh
 #
-# The app lands in dist/, with dist/Set-Up-Claude.zip next to it. The version
+# The app lands in dist/, with dist/Origami.zip next to it. The version
 # comes from the VERSION file. Building needs Apple's Command Line Tools
 # (xcode-select --install). Run it again after changing claude-setup.sh: the
 # app carries its own copy. To publish a version, use release.sh, which runs
@@ -22,10 +22,10 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 DIST="$ROOT/dist"
-APP_NAME="Set Up Claude"
+APP_NAME="Origami"
 APP="$DIST/$APP_NAME.app"
 # No spaces: GitHub renames release files that have them.
-ZIP="$DIST/Set-Up-Claude.zip"
+ZIP="$DIST/Origami.zip"
 VERSION=$(tr -d '[:space:]' < "$ROOT/VERSION")
 BUILD=$(mktemp -d "${TMPDIR:-/tmp}/set-up-claude-build.XXXXXX")
 
@@ -38,17 +38,17 @@ echo "Building version $VERSION for Apple silicon and Intel (macOS 13 or newer)â
 for arch in arm64 x86_64; do
   swiftc -parse-as-library -swift-version 5 -O \
     -target "$arch-apple-macos13.0" \
-    -o "$BUILD/SetUpClaude-$arch" "$HERE/SetUpClaude.swift"
+    -o "$BUILD/Origami-$arch" "$HERE/Origami.swift" "$HERE/Fold.swift"
 done
 
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-lipo -create -output "$APP/Contents/MacOS/SetUpClaude" "$BUILD/SetUpClaude-arm64" "$BUILD/SetUpClaude-x86_64"
+lipo -create -output "$APP/Contents/MacOS/Origami" "$BUILD/Origami-arm64" "$BUILD/Origami-x86_64"
 cp "$HERE/Info.plist" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 cp "$ROOT/claude-setup.sh" "$APP/Contents/Resources/claude-setup.sh"
 
 echo "Drawing the iconâ€¦"
-swiftc -O -o "$BUILD/make-icon" "$HERE/make-icon.swift"
+swiftc -parse-as-library -O -o "$BUILD/make-icon" "$HERE/make-icon.swift" "$HERE/Fold.swift"
 "$BUILD/make-icon" "$BUILD/AppIcon.iconset"
 iconutil -c icns "$BUILD/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
 

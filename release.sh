@@ -1,12 +1,13 @@
 #!/bin/bash
 #
-# Publishes a new version of Set Up Claude on GitHub.
+# Publishes a new version of Origami on GitHub.
 #
 #   bash release.sh 1.1.0 "What changed, in a sentence or two."
 #
 # It sets the version, builds the app, signs it with the Developer ID,
-# has Apple notarize it, and creates a GitHub release with three files:
-#   Set-Up-Claude.zip   the app
+# has Apple notarize it, and creates a GitHub release with these files:
+#   Origami.zip         the app
+#   Set-Up-Claude.zip   the same app, for links from before the rename
 #   claude-setup.sh     the script, for the Terminal route
 #   latest.json         the version, download address, and checksum
 #
@@ -87,8 +88,8 @@ fi
 
 DEVELOPER_ID="$DEVELOPER_ID" NOTARY_PROFILE="$NOTARY_PROFILE" bash app/build-app.sh
 
-APP="dist/Set Up Claude.app"
-ZIP="dist/Set-Up-Claude.zip"
+APP="dist/Origami.app"
+ZIP="dist/Origami.zip"
 if ! spctl --assess --type execute "$APP" 2> /dev/null; then
   echo "Gatekeeper doesn't accept the built app, so nothing was published."
   exit 1
@@ -100,18 +101,21 @@ if [ "$built" != "$VERSION" ]; then
 fi
 
 cp claude-setup.sh dist/claude-setup.sh
+# The same app under its old name, so download links shared before the
+# rename (Set Up Claude became Origami) keep working.
+cp "$ZIP" dist/Set-Up-Claude.zip
 osascript -l JavaScript -e 'function run(a) {
   return JSON.stringify({ version: a[0], url: a[1], sha256: a[2], notes: a[3], minimumSystemVersion: "13.0" }, null, 2)
-}' "$VERSION" "https://github.com/$REPO/releases/download/v$VERSION/Set-Up-Claude.zip" \
+}' "$VERSION" "https://github.com/$REPO/releases/download/v$VERSION/Origami.zip" \
   "$(shasum -a 256 "$ZIP" | awk '{print $1}')" "$NOTES" > dist/latest.json
 
 # ---- Publish ---------------------------------------------------------------
 
-git tag -a "v$VERSION" -m "Set Up Claude $VERSION"
+git tag -a "v$VERSION" -m "Origami $VERSION"
 git push --quiet origin main "v$VERSION"
-gh release create "v$VERSION" "$ZIP" dist/claude-setup.sh dist/latest.json \
-  --repo "$REPO" --title "Set Up Claude $VERSION" --notes "$NOTES" --latest
+gh release create "v$VERSION" "$ZIP" dist/Set-Up-Claude.zip dist/claude-setup.sh dist/latest.json \
+  --repo "$REPO" --title "Origami $VERSION" --notes "$NOTES" --latest
 
 echo
 echo "Released $VERSION: https://github.com/$REPO/releases/tag/v$VERSION"
-echo "Link to share: https://github.com/$REPO/releases/latest/download/Set-Up-Claude.zip"
+echo "Link to share: https://github.com/$REPO/releases/latest/download/Origami.zip"

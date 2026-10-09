@@ -1,6 +1,8 @@
-// Set Up Claude: a small Mac app that runs claude-setup.sh (bundled in the
-// app's Resources) and shows its progress in one window, so nobody has to open
-// Terminal or type anything.
+// Origami: a small Mac app that runs claude-setup.sh (bundled in the app's
+// Resources) and shows its progress in one window, so nobody has to open
+// Terminal or type anything. It opens on a page of notebook paper folding into
+// the start of a dart (Fold.swift), the paper airplane the rest of the family
+// flies.
 //
 // The script reports progress as lines that start with "@@" (see app_event in
 // claude-setup.sh). Everything else it prints goes in the Details panel. When
@@ -102,7 +104,7 @@ final class SetupRunner: ObservableObject {
     func start() {
         guard phase == .ready || phase == .stopped else { return }
         guard let script = Bundle.main.url(forResource: "claude-setup", withExtension: "sh") else {
-            details += "The setup script is missing from this app. Download Set Up Claude again.\n"
+            details += "The setup script is missing from this app. Download Origami again.\n"
             phase = .stopped
             return
         }
@@ -116,7 +118,7 @@ final class SetupRunner: ObservableObject {
         process.arguments = [script.path]
         var environment = ProcessInfo.processInfo.environment
         environment["CLAUDE_SETUP_UI"] = "app"
-        environment["CLAUDE_SETUP_RERUN_TEXT"] = "open the Set Up Claude app again and click Start setup"
+        environment["CLAUDE_SETUP_RERUN_TEXT"] = "open the Origami app again and click Start setup"
         if environment["LANG"] == nil {
             environment["LANG"] = "en_US.UTF-8"
         }
@@ -225,7 +227,7 @@ final class SetupRunner: ObservableObject {
         input = nil
         guard phase == .running else { return }
         heading = "Setup stopped"
-        message = "Setup stopped before it finished. **Details** below shows what happened. You can open Set Up Claude again and click **Start setup** to try again; it skips the steps that already worked."
+        message = "Setup stopped before it finished. **Details** below shows what happened. You can open Origami again and click **Start setup** to try again; it skips the steps that already worked."
         phase = .stopped
     }
 
@@ -389,6 +391,10 @@ final class Updater: ObservableObject {
             try files.createDirectory(at: applications, withIntermediateDirectories: true)
             target = applications.appendingPathComponent(target.lastPathComponent)
         }
+        // An update can carry a new name (Set Up Claude became Origami): it
+        // goes in under its own name, and the old copy goes to the Trash.
+        let previous = target
+        target = previous.deletingLastPathComponent().appendingPathComponent(newApp.lastPathComponent)
 
         // Copy next to the target first, so the swap happens on one disk.
         let staged = target.deletingLastPathComponent()
@@ -398,6 +404,9 @@ final class Updater: ObservableObject {
             _ = try files.replaceItemAt(target, withItemAt: staged, backupItemName: nil, options: [.usingNewMetadataOnly])
         } else {
             try files.moveItem(at: staged, to: target)
+        }
+        if previous != target && files.fileExists(atPath: previous.path) {
+            try? files.trashItem(at: previous, resultingItemURL: nil)
         }
 
         // Reopen the new version once this one has quit.
@@ -445,7 +454,7 @@ struct UpdateBanner: View {
             case .available(let version, let notes):
                 Image(systemName: "arrow.down.circle.fill")
                     .font(.system(size: 22))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.origami)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("A newer version is available (\(version))").font(.system(size: 13.5, weight: .semibold))
                     if !notes.isEmpty {
@@ -478,7 +487,7 @@ struct UpdateBanner: View {
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor.opacity(0.12)))
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.origami.opacity(0.12)))
     }
 }
 
@@ -489,16 +498,103 @@ func markdown(_ text: String) -> AttributedString {
     return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
 }
 
+extension Color {
+    // Origami's coral, from the icon's sky, dark enough for white text on a button.
+    static let origami = Color(.sRGB, red: 0.74, green: 0.32, blue: 0.24)
+    // For coral words: lighter on a dark window, so they stay readable.
+    static let origamiText = Color(nsColor: NSColor(name: nil) { look in
+        look.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 0.97, green: 0.60, blue: 0.50, alpha: 1)
+            : NSColor(srgbRed: 0.74, green: 0.32, blue: 0.24, alpha: 1)
+    })
+    static func sky(_ c: (r: Double, g: Double, b: Double)) -> Color { Color(.sRGB, red: c.r, green: c.g, blue: c.b) }
+}
+
+// The sheet t seconds into the startup (see Fold.moment).
+struct FoldView: View {
+    let t: Double
+
+    var body: some View {
+        Canvas { context, size in
+            // A Canvas's CGContext has y pointing down, as Fold expects.
+            context.withCGContext { ctx in
+                let m = Fold.moment(t)
+                ctx.setAlpha(CGFloat(m.opacity))
+                Fold.draw(ctx, cam: Fold.camera(width: size.width, height: size.height),
+                          corner: m.corner, cornerRight: m.cornerRight, keel: m.keel,
+                          lift: m.lift, yaw: Fold.yaw, scale: min(size.width, size.height) / 512)
+            }
+        }
+    }
+}
+
+// The startup: the page drops onto the coral sky and folds, the name comes in
+// under it, and the window shows through. A click skips it.
+struct Splash: View {
+    let onDone: () -> Void
+    static let tagline = "Claude set up, one fold at a time"
+    // When the window first shows it, not when it was made: the first launch
+    // can take a second or two to put the window on screen.
+    @State private var start: Date?
+    static let fadeAt = Fold.end + 0.7, gone = Fold.end + 1.2
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let t = start.map { timeline.date.timeIntervalSince($0) } ?? 0
+            let words = Fold.span(t, Fold.wordsAt, Fold.wordsAt + 0.5)
+            ZStack {
+                LinearGradient(colors: [.sky(Fold.skyTop), .sky(Fold.skyBottom)], startPoint: .top, endPoint: .bottom)
+                VStack(spacing: 6) {
+                    FoldView(t: t).frame(width: 340, height: 340)
+                    Group {
+                        Text("Origami")
+                            .font(.system(size: 40, weight: .bold))
+                        Text(Self.tagline)
+                            .font(.system(size: 15, weight: .medium))
+                    }
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.3), radius: 1.5, y: 1)
+                    .opacity(words)
+                    .offset(y: 8 * (1 - words))
+                }
+                .offset(y: -20)
+            }
+            .opacity(1 - Fold.span(t, Self.fadeAt, Self.gone))
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onDone)
+        .task {
+            start = Date()
+            try? await Task.sleep(nanoseconds: UInt64(Self.gone * 1e9))
+            onDone()
+        }
+    }
+}
+
 struct ContentView: View {
     @ObservedObject private var runner = SetupRunner.shared
     @ObservedObject private var updater = Updater.shared
     @State private var showDetails = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Not with Reduce Motion, and not when a test starts setup by itself.
+    @State private var splash = !CommandLine.arguments.contains("--start")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(runner.heading)
-                .font(.system(size: 26, weight: .bold))
-                .frame(maxWidth: .infinity, alignment: .center)
+            HStack(spacing: 14) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 56, height: 56)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Origami")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.origamiText)
+                    Text(runner.heading)
+                        .font(.system(size: 24, weight: .bold))
+                }
+                Spacer()
+            }
 
             // Updates are offered only before setup starts, never in the middle of it.
             if runner.phase == .ready && updater.state != .none {
@@ -530,6 +626,12 @@ struct ContentView: View {
         }
         .padding(24)
         .frame(width: 760)
+        .tint(Color.origami)
+        .overlay {
+            if splash && !reduceMotion {
+                Splash { splash = false }
+            }
+        }
         .background(WindowAccessor { window in runner.window = window })
         .onAppear {
             runner.handleLaunchArguments()
@@ -702,7 +804,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard SetupRunner.shared.phase == .running else { return .terminateNow }
         let alert = NSAlert()
         alert.messageText = "Stop setup?"
-        alert.informativeText = "Setup is still running. If you stop now, you can open Set Up Claude again later and it picks up where it left off."
+        alert.informativeText = "Setup is still running. If you stop now, you can open Origami again later and it picks up where it left off."
         alert.addButton(withTitle: "Keep going")
         alert.addButton(withTitle: "Stop setup")
         return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
@@ -714,7 +816,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct SetUpClaudeApp: App {
+struct OrigamiApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -724,7 +826,7 @@ struct SetUpClaudeApp: App {
     }
 
     var body: some Scene {
-        Window("Set Up Claude", id: "setup") {
+        Window("Origami", id: "setup") {
             ContentView()
         }
         .windowResizability(.contentSize)

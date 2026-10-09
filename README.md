@@ -1,12 +1,16 @@
-# Set Up Claude
+# Origami
 
-Sets up a Mac for Claude: the Claude app, Claude Code (the `claude` command in Terminal), Apple's developer tools, which include Git, and the GitHub CLI (`gh`). Every step shows in one window. If something fails, it opens Claude with a message describing what happened, so the person can troubleshoot with Claude's help.
+<img src="screenshots/icon.png" width="128" alt="Origami's icon: a page of notebook paper folded into the start of a paper airplane, on a coral sky">
+
+*Claude set up, one fold at a time.*
+
+Origami (formerly Set Up Claude) sets up a Mac for Claude: the Claude app, Claude Code (the `claude` command in Terminal), Apple's developer tools, which include Git, and the GitHub CLI (`gh`). Every step shows in one window. If something fails, it opens Claude with a message describing what happened, so the person can troubleshoot with Claude's help.
 
 It's built for Northeastern University's Claude Enterprise accounts. The organization and plan it checks for are settings, so other teams can change them.
 
-**[Download Set Up Claude](https://github.com/Excaliburke/set-up-claude/releases/latest/download/Set-Up-Claude.zip)** (macOS 13 Ventura or newer)
+**[Download Origami](https://github.com/Excaliburke/set-up-claude/releases/latest/download/Origami.zip)** (macOS 13 Ventura or newer)
 
-![Set Up Claude before setup starts](screenshots/app-start.png)
+![Origami before setup starts](screenshots/app-start.png)
 
 It runs as the person themselves. Nothing needs IT, Jamf, or an admin password. It works on Apple silicon Macs. Intel Macs should work too, but haven't been tested.
 
@@ -15,11 +19,15 @@ It runs as the person themselves. Nothing needs IT, Jamf, or an admin password. 
 The download link above always gives the newest version. A message you can send:
 
 > To set up Claude on your Mac:
-> 1. Download Set Up Claude: https://github.com/Excaliburke/set-up-claude/releases/latest/download/Set-Up-Claude.zip
-> 2. Double-click the zip to unzip it, then open **Set Up Claude**. macOS asks if you're sure you want to open it; click **Open**.
+> 1. Download Origami: https://github.com/Excaliburke/set-up-claude/releases/latest/download/Origami.zip
+> 2. Double-click the zip to unzip it, then open **Origami**. macOS asks if you're sure you want to open it; click **Open**.
 > 3. Click **Start setup** and follow the window.
 
-The app is signed with the Developer ID "Brian Burke (YX5UZDLY5F)" and notarized by Apple, so macOS only asks its usual one-time question for downloaded apps.
+The app is signed with the Developer ID "Brian Burke (YX5UZDLY5F)" and notarized by Apple, so macOS only asks its usual one-time question for downloaded apps. Links to `Set-Up-Claude.zip` from before the rename still work: each release carries the same app under that name too.
+
+## The look
+
+Origami is the family's fifth app, after Flyover, Cargo Flight, Airport and Hangar, whose icons and openings fly a paper dart. Origami's opening is the step before: a page of loose-leaf notebook paper drops onto a coral sky, its top corners fold in, and the centre crease sets, the start of that dart. The last frame is the icon. The fold is real geometry (`app/Fold.swift`), so the opening and the icon draw the same sheet. With **Reduce motion** turned on in System Settings, the window opens without it; a click skips it.
 
 ## What happens
 
@@ -64,6 +72,8 @@ Clicking **Update** downloads the new version, checks it, replaces the app where
 - was notarized by Apple
 
 If any check fails, nothing is replaced, and the app says so with a link to download the newest version by hand. Updates are only offered before setup starts, never in the middle of it. If the app was opened straight from Downloads, macOS runs it from a hidden temporary copy, and the update replaces the original instead.
+
+A copy from before the rename (Set Up Claude 1.0.0) updates itself in place, so it keeps the file name `Set Up Claude.app` while showing Origami inside. Its next update is installed as `Origami.app` and moves the old copy to the Trash.
 
 ## Get help from Claude
 
@@ -166,7 +176,7 @@ The notes show in the app's update offer, so write them for the people using it.
 2. sets the version in `VERSION` and `claude-setup.sh`, and commits that
 3. builds the app, signs it, has Apple notarize it, and checks that Gatekeeper accepts it
 4. writes `latest.json` with the version, download address, checksum and notes
-5. tags the version, pushes, and creates the GitHub release with `Set-Up-Claude.zip`, `claude-setup.sh` and `latest.json`
+5. tags the version, pushes, and creates the GitHub release with `Origami.zip`, a copy named `Set-Up-Claude.zip` for old links, `claude-setup.sh` and `latest.json`
 
 Nothing is published until signing and notarization have worked. Copies of the app already out there see the new version the next time they open.
 
@@ -218,6 +228,7 @@ bash tests/test-app.sh
 
 - on the pretend Mac with Apple's installer "cancelled", checking that **Get help from Claude** reaches Claude
 - with a pretend newer release, checking that the app installs it, stays signed by the same developer, and reopens
+- with a copy still named `Set Up Claude.app`, checking that the update comes back as `Origami.app` and the old copy goes to the Trash
 - with a release whose checksum doesn't match, checking that the app refuses it and leaves itself alone
 
 ## Files
@@ -225,9 +236,10 @@ bash tests/test-app.sh
 | File | What it is |
 | --- | --- |
 | `claude-setup.sh` | The setup tool. The app runs this same file |
-| `app/SetUpClaude.swift` | The app: its window and its updater |
+| `app/Origami.swift` | The app: its window, its opening and its updater |
+| `app/Fold.swift` | The folding page, drawn by the opening and the icon |
 | `app/Info.plist`, `app/make-icon.swift` | The app's details and icon |
-| `app/build-app.sh` | Builds `dist/Set Up Claude.app` and `dist/Set-Up-Claude.zip` |
+| `app/build-app.sh` | Builds `dist/Origami.app` and `dist/Origami.zip` |
 | `release.sh` | Publishes a new version on GitHub |
 | `VERSION` | The current version |
 | `tests/run-tests.sh`, `tests/test-app.sh` | The tests |
