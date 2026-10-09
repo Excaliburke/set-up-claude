@@ -37,9 +37,9 @@ final class SetupRunner: ObservableObject {
     static let shared = SetupRunner()
 
     static let welcome = """
-    This sets up Claude on your Mac: the Claude app, Claude Code, and Git. It takes about 10 to 20 minutes, and most of it runs by itself.
+    This sets up Claude on your Mac: the Claude app, Claude Code, Git, and the GitHub CLI. It takes about 10 to 20 minutes, and most of it runs by itself.
 
-    Two steps need you when they come up: clicking **Install** in Apple's window, and **signing in** with your work account in your browser.
+    A few steps need you when they come up: clicking **Install** in Apple's window, **signing in** with your work account in your browser, and **signing in to GitHub**.
 
     Click **Start setup** when you're ready.
     """
@@ -52,6 +52,7 @@ final class SetupRunner: ObservableObject {
         "Install Claude Code for Terminal",
         "Sign in to Claude Code",
         "Set up Git",
+        "Set up GitHub",
         "Sign in to the Claude app",
         "Final check",
     ]

@@ -2,10 +2,11 @@
 #
 # Claude setup for Mac
 #
-# Installs the Claude app, Claude Code (the `claude` command), and Apple's
-# developer tools (which include Git), signs in to Claude Code, and shows each
-# step in a window. If a step fails, it opens Claude with a message that
-# describes what happened, so the person can troubleshoot with Claude.
+# Installs the Claude app, Claude Code (the `claude` command), Apple's
+# developer tools (which include Git), and the GitHub CLI (`gh`), signs in to
+# Claude Code and GitHub, and shows each step in a window. If a step fails, it
+# opens Claude with a message that describes what happened, so the person can
+# troubleshoot with Claude.
 #
 # Run it as yourself (not with sudo) from Terminal, either straight from the
 # latest GitHub release:
@@ -70,6 +71,16 @@ DIALOG_TEAM_ID="PWA5E9TQ59"
 DIALOG_PKG_URL_MACOS15="https://github.com/swiftDialog/swiftDialog/releases/download/v3.1.0/dialog-3.1.0-4994.pkg"
 DIALOG_PKG_URL_MACOS13="https://github.com/swiftDialog/swiftDialog/releases/download/v2.5.6/dialog-2.5.6-4805.pkg"
 
+# The GitHub CLI (gh). Some Mac apps, Hangar for one, sign in to GitHub through
+# it. When it's missing, this tool installs GitHub's own build for the Mac's
+# chip, which must match GitHub's checksum and be signed by GitHub, Inc. (team
+# confirmed on gh 2.102.0's own binary). Never Homebrew, and never the .pkg,
+# which needs an admin password.
+GH_TEAM_ID="VEKTX9H2N7"
+GH_RELEASE_API_URL="https://api.github.com/repos/cli/cli/releases/latest"
+GH_DOWNLOAD_URL="https://github.com/cli/cli/releases/download"
+GH_DEVICE_URL="https://github.com/login/device"
+
 # Use macOS's own tools first. Copies from Homebrew or Anaconda can behave
 # differently: GNU sed breaks in-place edits, and some curl builds don't trust
 # the certificates macOS trusts.
@@ -79,10 +90,15 @@ PATH="${CLAUDE_SETUP_STUB_PATH:+$CLAUDE_SETUP_STUB_PATH:}/usr/bin:/bin:/usr/sbin
 WORK_DIR="${CLAUDE_SETUP_WORK_DIR:-$HOME/Library/Application Support/ClaudeSetup}"
 APPS_DIR="${CLAUDE_SETUP_APPS_DIR:-/Applications}"
 CLAUDE_BIN="$HOME/.local/bin/claude"
+GH_LOCAL_BIN="$HOME/.local/bin/gh"
+# Where Homebrew may be (Apple silicon, then Intel), separated by spaces.
+HOMEBREW_DIRS="${CLAUDE_SETUP_HOMEBREW_DIRS:-/opt/homebrew /usr/local}"
 POLL_SECS="${CLAUDE_SETUP_POLL_SECS:-3}"
 DEVTOOLS_TIMEOUT_SECS="${CLAUDE_SETUP_DEVTOOLS_TIMEOUT:-2700}"
 DEVTOOLS_APPEAR_SECS="${CLAUDE_SETUP_DEVTOOLS_APPEAR:-90}"
 SIGNIN_TIMEOUT_SECS="${CLAUDE_SETUP_SIGNIN_TIMEOUT:-900}"
+# GitHub isn't needed for Claude, so people without an account wait less.
+GITHUB_TIMEOUT_SECS="${CLAUDE_SETUP_GITHUB_TIMEOUT:-600}"
 HELP_MAX_CHARS=12000
 
 # ---- Steps -----------------------------------------------------------------
@@ -95,16 +111,17 @@ STEP_TITLES=(
   "Install Claude Code for Terminal"
   "Sign in to Claude Code"
   "Set up Git"
+  "Set up GitHub"
   "Sign in to the Claude app"
   "Final check"
 )
-S_MAC=0; S_TOOLS=1; S_APP=2; S_CLI=3; S_SIGNIN=4; S_GIT=5; S_APPSIGNIN=6; S_FINAL=7
+S_MAC=0; S_TOOLS=1; S_APP=2; S_CLI=3; S_SIGNIN=4; S_GIT=5; S_GITHUB=6; S_APPSIGNIN=7; S_FINAL=8
 STEP_COUNT=${#STEP_TITLES[@]}
 
 # States: wait, progress, pending (needs the person), success, warn, fail, skip.
-STEP_STATE=(wait wait wait wait wait wait wait wait)
-STEP_NOTE=("" "" "" "" "" "" "" "")
-STEP_TRIED=("" "" "" "" "" "" "" "")
+STEP_STATE=(wait wait wait wait wait wait wait wait wait)
+STEP_NOTE=("" "" "" "" "" "" "" "" "")
+STEP_TRIED=("" "" "" "" "" "" "" "" "")
 
 # ---- Run state -------------------------------------------------------------
 
@@ -135,6 +152,14 @@ CLI_VERSION=""
 APP_PATH=""
 GIT_BIN=""
 GIT_VERSION=""
+GH_BIN=""
+GH_VERSION=""
+GH_FRESH=""
+GH_ACCOUNT=""
+GH_SIGNED_IN=0
+GH_PROBLEM=""
+GH_LOGIN_PID=""
+BREW_NOTE=""
 TOOLS_NEW=0
 TOOLS_SEEN=0
 TOOLS_STARTED_AT=0
@@ -342,7 +367,7 @@ set_step() {
 intro_message() {
   printf '%s' "**Setting up Claude on your Mac.** This takes about 10 to 20 minutes, and most of it runs by itself.
 
-Two steps need you when they come up: clicking **Install** in Apple's window, and **signing in** with your $ORG_LABEL account in your browser.
+A few steps need you when they come up: clicking **Install** in Apple's window, **signing in** with your $ORG_LABEL account in your browser, and **signing in to GitHub**.
 
 Keep this window open. You can keep working while it runs."
   if [ -n "$NEWER_VERSION" ]; then
@@ -513,11 +538,15 @@ cli_works() {
   [ -x "$CLAUDE_BIN" ] && "$CLAUDE_BIN" --version >/dev/null 2>&1
 }
 
-# What a brand-new Terminal window finds for `claude`.
-fresh_shell_claude() {
+# What a brand-new Terminal window finds for a command, such as `claude`.
+fresh_shell_command() {
   local out
-  out=$(run_with_timeout 20 "$LOGIN_SHELL" -lic 'command -v claude' < /dev/null 2>> "${STEP_LOG:-/dev/null}")
+  out=$(run_with_timeout 20 "$LOGIN_SHELL" -lic "command -v $1" < /dev/null 2>> "${STEP_LOG:-/dev/null}")
   printf '%s\n' "$out" | awk 'NF { line = $0 } END { print line }'
+}
+
+fresh_shell_claude() {
+  fresh_shell_command claude
 }
 
 read_auth() {
@@ -1091,6 +1120,280 @@ step_git() {
   fi
 }
 
+find_brew() {
+  local d
+  for d in $HOMEBREW_DIRS; do
+    if [ -x "$d/bin/brew" ]; then
+      printf '%s\n' "$d/bin/brew"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# The full path of a command a new Terminal window finds, if it runs.
+fresh_shell_working() {
+  local p t='~'
+  p=$(fresh_shell_command "$1")
+  p=${p/#"$t"/$HOME}
+  case $p in /*) ;; *) return 1 ;; esac
+  [ -x "$p" ] && "$p" --version >/dev/null 2>&1 || return 1
+  printf '%s\n' "$p"
+}
+
+# Homebrew's installer asks people to add its line to their shell startup file
+# themselves, and many never do, so new Terminal windows can't find brew or
+# anything it installed (gh included). When Homebrew is here but a new Terminal
+# window doesn't find it, this adds Homebrew's own line. It's a repair, not an
+# install: this tool never installs Homebrew, and a problem here is only a
+# warning. Sets BREW_NOTE when it can't fix it.
+fix_homebrew_path() {
+  local brew f line marker="Claude setup (Homebrew)"
+  BREW_NOTE=""
+  brew=$(find_brew) || return 0
+  [ -n "$(fresh_shell_command brew)" ] && return 0
+  log "Homebrew is at $brew but new Terminal windows don't find it"
+  case "$(basename "$LOGIN_SHELL")" in
+    # Homebrew's own advice for zsh is ~/.zprofile.
+    zsh) f="$(zdotdir)/.zprofile"; line="eval \"\$($brew shellenv)\"" ;;
+    bash) f=$(rc_file_for_shell); line="eval \"\$($brew shellenv)\"" ;;
+    fish) f="$HOME/.config/fish/conf.d/claude-setup-homebrew.fish"; line="$brew shellenv fish | source" ;;
+    *)
+      BREW_NOTE="Homebrew is installed but new Terminal windows don't find it. Your shell ($(basename "$LOGIN_SHELL")) isn't one this tool knows."
+      return 1 ;;
+  esac
+  if grep -Eq '^[^#]*brew shellenv' "$f" 2>/dev/null; then
+    BREW_NOTE="Homebrew is installed but new Terminal windows don't find it, though $(tilde "$f") sets it up."
+    return 1
+  fi
+  mkdir -p "$(dirname "$f")"
+  [ -f "$f" ] && backup_once "$(readlink -f "$f" 2>/dev/null || printf '%s' "$f")"
+  printf '\n%s\n%s\n%s\n' "# >>> $marker >>>" "$line" "# <<< $marker <<<" >> "$f"
+  add_change "added Homebrew's PATH line to $(tilde "$f")"
+  if [ -z "$(fresh_shell_command brew)" ]; then
+    BREW_NOTE="Added Homebrew to $(tilde "$f") but new Terminal windows still don't find it."
+    return 1
+  fi
+  return 0
+}
+
+# Downloads GitHub's own build of gh for this Mac's chip, checks it against
+# GitHub's checksum and signature, and copies it to ~/.local/bin. Sets
+# GH_PROBLEM when it can't.
+install_gh() {
+  local i=$1 json="$RUN_DIR/gh-release.json" v arch name zip sums want got dir found team
+  set_step $i progress "Downloading the GitHub CLI"
+  if ! curl -fsSL --max-time 30 -o "$json" "$GH_RELEASE_API_URL" >> "$STEP_LOG" 2>&1; then
+    GH_PROBLEM="Couldn't reach github.com to download the GitHub CLI."
+    return 1
+  fi
+  v=$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\{0,1\}\([^"]*\)".*/\1/p' "$json" | head -n 1)
+  case $v in
+    ''|*[!0-9.]*)
+      log "Unexpected GitHub CLI release tag: '$v'"
+      GH_PROBLEM="github.com didn't say which version of the GitHub CLI is the newest."
+      return 1 ;;
+  esac
+  case $ARCH in arm64) arch=arm64 ;; *) arch=amd64 ;; esac
+  name="gh_${v}_macOS_${arch}.zip"
+  zip="$RUN_DIR/$name"
+  sums="$RUN_DIR/gh_${v}_checksums.txt"
+  if ! curl -fsSL --max-time 300 -o "$zip" "$GH_DOWNLOAD_URL/v$v/$name" >> "$STEP_LOG" 2>&1 ||
+     ! curl -fsSL --max-time 30 -o "$sums" "$GH_DOWNLOAD_URL/v$v/gh_${v}_checksums.txt" >> "$STEP_LOG" 2>&1; then
+    GH_PROBLEM="Couldn't download the GitHub CLI from github.com."
+    return 1
+  fi
+
+  set_step $i progress "Checking GitHub's signature"
+  want=$(awk -v f="$name" '$2 == f { print $1; exit }' "$sums")
+  got=$(shasum -a 256 "$zip" 2>> "$STEP_LOG" | awk '{print $1}')
+  log "GitHub CLI checksum: expected '$want', got '$got'"
+  if [ -z "$want" ] || [ "$want" != "$got" ]; then
+    rm -f "$zip"
+    GH_PROBLEM="The GitHub CLI download didn't match GitHub's checksum, so it wasn't installed."
+    return 1
+  fi
+  dir="$RUN_DIR/gh-download"
+  rm -rf "$dir"
+  if ! ditto -x -k "$zip" "$dir" >> "$STEP_LOG" 2>&1; then
+    GH_PROBLEM="Couldn't open the GitHub CLI download."
+    return 1
+  fi
+  found="$dir/gh_${v}_macOS_${arch}/bin/gh"
+  [ -f "$found" ] || found=$(find "$dir" -maxdepth 3 -type f -path '*/bin/gh' 2>/dev/null | head -n 1)
+  if [ -z "$found" ] || ! codesign --verify --strict "$found" >> "$STEP_LOG" 2>&1; then
+    GH_PROBLEM="The GitHub CLI download isn't signed properly, so it wasn't installed."
+    return 1
+  fi
+  team=$(codesign -dv "$found" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+  log "GitHub CLI download is signed by team '${team:-none}' (expected $GH_TEAM_ID)"
+  if [ "$team" != "$GH_TEAM_ID" ]; then
+    GH_PROBLEM="The GitHub CLI download isn't signed by GitHub, so it wasn't installed."
+    return 1
+  fi
+
+  set_step $i progress "Copying to ~/.local/bin"
+  if ! mkdir -p "$(dirname "$GH_LOCAL_BIN")" || ! cp "$found" "$GH_LOCAL_BIN.new" ||
+     ! chmod +x "$GH_LOCAL_BIN.new" || ! mv -f "$GH_LOCAL_BIN.new" "$GH_LOCAL_BIN"; then
+    rm -f "$GH_LOCAL_BIN.new"
+    GH_PROBLEM="Couldn't copy the GitHub CLI to ~/.local/bin."
+    return 1
+  fi
+  rm -rf "$dir" "$zip" "$sums" "$json"
+  add_change "installed the GitHub CLI $v in ~/.local/bin"
+  return 0
+}
+
+github_message() {
+  printf '%s' "**Sign in to GitHub in your browser.** A GitHub page just opened. Sign in there (with your organization's single sign-on if it asks), enter the code **$1**, and approve **GitHub CLI**. The code is already on your clipboard, so you can paste it with Command-V. This window moves on by itself.
+
+If the page didn't open, [open GitHub's code page]($GH_DEVICE_URL).
+
+**No GitHub account?** Claude doesn't need one. Leave the page, and setup moves on by itself within $((GITHUB_TIMEOUT_SECS / 60)) minutes."
+}
+
+stop_gh_login() {
+  if [ -n "$GH_LOGIN_PID" ]; then
+    kill "$GH_LOGIN_PID" 2>/dev/null
+    wait "$GH_LOGIN_PID" 2>/dev/null
+    GH_LOGIN_PID=""
+  fi
+}
+
+# True when gh is signed in to github.com. Sets GH_ACCOUNT from what gh says.
+gh_signed_in() {
+  local out="$RUN_DIR/gh-status.txt"
+  GH_ACCOUNT=""
+  run_with_timeout 30 "$GH_BIN" auth status --hostname github.com < /dev/null > "$out" 2>&1 || return 1
+  GH_ACCOUNT=$(sed -n -e 's/.*Logged in to github\.com account \([^[:space:]]*\).*/\1/p' \
+    -e 's/.*Logged in to github\.com as \([^[:space:]]*\).*/\1/p' "$out" | head -n 1)
+  return 0
+}
+
+# One GitHub sign-in with gh's device flow: with no terminal, gh prints a
+# one-time code and waits for GitHub to say it was entered. BROWSER stops gh
+# from opening a browser itself; this tool opens GitHub's page instead.
+# Returns 0 once gh reports a signed-in account. Sets GH_PROBLEM when it doesn't.
+gh_signin() {
+  local i=$1 out="$RUN_DIR/gh-login.out" start code="" rc n
+  BROWSER=/usr/bin/true GH_NO_UPDATE_NOTIFIER=1 "$GH_BIN" auth login --hostname github.com --web --git-protocol https --skip-ssh-key < /dev/null > "$out" 2>&1 &
+  GH_LOGIN_PID=$!
+  start=$(date +%s)
+  while :; do
+    sleep "$POLL_SECS"
+    if [ -z "$code" ]; then
+      code=$(sed -e $'s/\033\\[[0-9;]*[A-Za-z]//g' "$out" 2>/dev/null | sed -n 's/.*one-time code: \([A-Z0-9]\{4\}-[A-Z0-9]\{4\}\).*/\1/p' | head -n 1)
+      if [ -n "$code" ]; then
+        printf '%s' "$code" | pbcopy 2>/dev/null
+        open "$GH_DEVICE_URL" >> "$STEP_LOG" 2>&1
+        set_step $i pending "Needs you: enter the code $code on GitHub"
+        ui_message "$(github_message "$code")"
+      fi
+    fi
+    if ! kill -0 "$GH_LOGIN_PID" 2>/dev/null; then
+      wait "$GH_LOGIN_PID"
+      rc=$?
+      GH_LOGIN_PID=""
+      cat "$out" >> "$STEP_LOG"
+      gh_signed_in && return 0
+      GH_PROBLEM="GitHub sign-in stopped before it finished (exit $rc): $(last_line "$out")"
+      return 1
+    fi
+    if gh_signed_in; then
+      # gh saves its settings just after the sign-in, so let it finish first.
+      for ((n = 0; n < 10; n++)); do
+        kill -0 "$GH_LOGIN_PID" 2>/dev/null || break
+        sleep 1
+      done
+      stop_gh_login
+      cat "$out" >> "$STEP_LOG"
+      return 0
+    fi
+    if [ $(( $(date +%s) - start )) -ge "$GITHUB_TIMEOUT_SECS" ]; then
+      stop_gh_login
+      cat "$out" >> "$STEP_LOG"
+      GH_PROBLEM="GitHub sign-in didn't finish within $((GITHUB_TIMEOUT_SECS / 60)) minutes."
+      return 1
+    fi
+  done
+}
+
+# Lets Git use gh's GitHub sign-in (gh auth setup-git), unless it already does.
+# Returns 2 when Git doesn't work yet.
+gh_setup_git() {
+  local git cfg="$HOME/.gitconfig"
+  git=$(real_git_path) || return 2
+  if "$git" config --global --get-all credential.https://github.com.helper 2>/dev/null | grep -q 'auth git-credential'; then
+    return 0
+  fi
+  [ -f "$cfg" ] && backup_once "$(readlink -f "$cfg" 2>/dev/null || printf '%s' "$cfg")"
+  run_with_timeout 30 "$GH_BIN" auth setup-git --hostname github.com < /dev/null >> "$STEP_LOG" 2>&1 || return 1
+  add_change "set Git to use the GitHub sign-in (gh auth setup-git)"
+  return 0
+}
+
+# The GitHub CLI must work in new Terminal windows; signing in to GitHub is
+# helpful but not needed for Claude, so sign-in problems are only warnings.
+step_github() {
+  local i=$S_GITHUB found note notes="" rc
+  begin_step $i
+  STEP_TRIED[$i]="Checked that new Terminal windows find a working GitHub CLI (gh), adding Homebrew's PATH line if Homebrew was installed but not found. If they didn't, downloaded GitHub's own gh for this Mac's chip from $GH_DOWNLOAD_URL, checked it against GitHub's checksum and signature (team $GH_TEAM_ID), and copied it to ~/.local/bin. Then signed in with gh auth login --web and ran gh auth setup-git"
+  set_step $i progress "Checking"
+  fix_homebrew_path
+  GH_PROBLEM=""
+  GH_FRESH=$(fresh_shell_working gh)
+  if [ -z "$GH_FRESH" ]; then
+    log "New Terminal windows don't find a working gh (they find: '$(fresh_shell_command gh)')"
+    if ! install_gh $i; then
+      set_step $i fail "$GH_PROBLEM"
+      return
+    fi
+    ensure_path
+    set_step $i progress "Checking that new Terminal windows can find it" quiet
+    GH_FRESH=$(fresh_shell_working gh)
+    if [ -z "$GH_FRESH" ]; then
+      found=$(fresh_shell_command gh)
+      if [ -n "$found" ]; then
+        set_step $i fail "The GitHub CLI is in ~/.local/bin but new Terminal windows run a copy that doesn't work: $(tilde "$found")"
+      else
+        set_step $i fail "The GitHub CLI is in ~/.local/bin but new Terminal windows can't find it."
+      fi
+      return
+    fi
+  fi
+  GH_BIN=$GH_FRESH
+  GH_VERSION=$("$GH_BIN" --version 2>/dev/null | head -n 1 | awk '{print $3}')
+  log "New Terminal windows find gh $GH_VERSION at $GH_BIN"
+  [ -n "$BREW_NOTE" ] && notes=$BREW_NOTE
+
+  set_step $i progress "Checking the GitHub sign-in"
+  GH_SIGNED_IN=0
+  if gh_signed_in; then
+    GH_SIGNED_IN=1
+  else
+    if gh_signin $i; then
+      GH_SIGNED_IN=1
+    fi
+    ui_message "$(intro_message)"
+  fi
+  cat "$RUN_DIR/gh-status.txt" >> "$STEP_LOG" 2>/dev/null
+  if [ "$GH_SIGNED_IN" != 1 ]; then
+    set_step $i warn "gh $GH_VERSION works but isn't signed in to GitHub. ${GH_PROBLEM:+$GH_PROBLEM }Sign in later with: gh auth login --web (Hangar can also sign you in)${notes:+ · $notes}"
+    return
+  fi
+  [ -n "$GH_ACCOUNT" ] || GH_ACCOUNT=$(run_with_timeout 30 "$GH_BIN" api user --jq .login < /dev/null 2>> "$STEP_LOG")
+
+  gh_setup_git
+  rc=$?
+  [ $rc = 1 ] && notes="${notes:+$notes · }Git couldn't be set to use it. Run: gh auth setup-git"
+  note="gh $GH_VERSION · signed in as ${GH_ACCOUNT:-your GitHub account}"
+  if [ -n "$notes" ]; then
+    set_step $i warn "$note · $notes"
+  else
+    set_step $i success "$note"
+  fi
+}
+
 step_app_signin() {
   local i=$S_APPSIGNIN
   begin_step $i
@@ -1110,7 +1413,7 @@ step_app_signin() {
 step_final() {
   local i=$S_FINAL problems="" fresh rc
   begin_step $i
-  STEP_TRIED[$i]="Checked claude in a new login shell, claude auth status, git --version, the Claude app, and ran claude doctor"
+  STEP_TRIED[$i]="Checked claude and gh in a new login shell, claude auth status, git --version, the Claude app, gh auth status, and ran claude doctor"
   if any_failed; then
     set_step $i skip "Skipped until the steps above are fixed"
     return
@@ -1122,13 +1425,23 @@ step_final() {
   read_auth
   account_ok || problems="${problems:+$problems · }Claude Code is $(account_problem)"
   real_git_path >/dev/null || problems="${problems:+$problems · }Git doesn't work"
+  GH_FRESH=$(fresh_shell_working gh)
+  [ -n "$GH_FRESH" ] || problems="${problems:+$problems · }new Terminal windows don't find the GitHub CLI"
   [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ] || problems="${problems:+$problems · }the Claude app is missing"
   run_with_timeout 60 "$CLAUDE_BIN" doctor < /dev/null > "$RUN_DIR/doctor.txt" 2>&1
   rc=$?
   cat "$RUN_DIR/doctor.txt" >> "$STEP_LOG"
   [ $rc -eq 0 ] || problems="${problems:+$problems · }claude doctor reported a problem"
   if [ -z "$problems" ]; then
-    set_step $i success "Everything works"
+    GH_BIN=$GH_FRESH
+    # Signing in to GitHub isn't needed for Claude, so it's only reported.
+    if gh_signed_in; then
+      GH_SIGNED_IN=1
+      set_step $i success "Everything works"
+    else
+      GH_SIGNED_IN=0
+      set_step $i warn "Everything works except the GitHub sign-in. Sign in later with: gh auth login --web"
+    fi
   else
     set_step $i fail "$problems"
   fi
@@ -1143,6 +1456,7 @@ redact() {
     -e 's#/Users/[^/[:space:]]+#/Users/<user>#g' \
     -e 's#[[:alnum:]._%+-]+@[[:alnum:].-]+\.[[:alpha:]]{2,}#<email>#g' \
     -e 's#sk-ant-[[:alnum:]_-]+#<api-key>#g' \
+    -e 's#(gh[opusr]_|github_pat_)[[:alnum:]_]+#<github-token>#g' \
     -e 's#((code|state|code_challenge|token|access_token|refresh_token)=)[^&[:space:]]+#\1<hidden>#g' \
     -e 's#[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}#<id>#g')
   # Patterns live in variables: bash 3.2 misreads slashes inside a quoted pattern.
@@ -1150,6 +1464,8 @@ redact() {
   local name_marker="<name>" user_marker="<user>"
   if [ ${#FULL_NAME} -ge 3 ]; then s=${s//"$FULL_NAME"/$name_marker}; fi
   if [ ${#USER} -ge 4 ]; then s=${s//"$USER"/$user_marker}; fi
+  local github_marker="<github-account>"
+  if [ ${#GH_ACCOUNT} -ge 3 ]; then s=${s//"$GH_ACCOUNT"/$github_marker}; fi
   printf '%s' "$s"
 }
 
@@ -1198,6 +1514,8 @@ My Mac:
 - Apple's developer tools: $(xcode-select -p 2>/dev/null || printf 'not installed') · Git: ${GIT_VERSION:-not working}
 - Claude app: ${APP_PATH:-not installed}
 - Claude Code sign-in: $( [ "$AUTH_LOGGED_IN" = true ] && printf 'signed in, plan %s, %s' "${AUTH_PLAN:-unknown}" "$(account_ok && printf 'right organization' || account_problem)" || printf 'not signed in')
+- GitHub CLI: $( [ -n "$GH_BIN" ] && printf 'gh %s at %s' "${GH_VERSION:-unknown}" "$GH_BIN" || printf 'not working') · What a new Terminal window finds for gh: ${GH_FRESH:-nothing} · GitHub sign-in: $( [ "$GH_SIGNED_IN" = 1 ] && printf 'signed in' || printf 'not signed in')
+- Homebrew: $(find_brew || printf 'not installed')${BREW_NOTE:+ ($BREW_NOTE)}
 - Changes this tool made: ${CHANGES:-none}"
 
   if [ -n "$first" ] && [ -f "$RUN_DIR/step-$first.log" ]; then
@@ -1329,7 +1647,7 @@ open_help() {
 # ---- Finish ----------------------------------------------------------------
 
 finish() {
-  local i failed="" todo="" msg rc
+  local i failed="" todo="" github="" msg rc
   for ((i = 0; i < STEP_COUNT; i++)); do
     case ${STEP_STATE[$i]} in
       fail) failed="$failed
@@ -1338,11 +1656,14 @@ finish() {
 - **${STEP_TITLES[$i]}:** ${STEP_NOTE[$i]#Needs you: }" ;;
     esac
   done
+  [ "${STEP_STATE[$S_GITHUB]}" = warn ] && github=${STEP_NOTE[$S_GITHUB]}
   ui_stop
   printf '\n'
 
   if [ -z "$failed" ]; then
-    msg="Claude Code is installed and signed in, and Git works.${todo:+
+    msg="Claude Code is installed and signed in, and Git and the GitHub CLI work.${github:+
+
+**GitHub:** $github}${todo:+
 
 **Still to do:**$todo
 
@@ -1350,6 +1671,7 @@ Use your **$ORG_LABEL** account wherever you sign in.}
 
 To use Claude Code in Terminal, open a **new** Terminal window and type **claude**."
     say "${C_BOLD}Claude is ready.${C_OFF}"
+    [ -n "$github" ] && say "GitHub: $github"
     [ -n "$todo" ] && printf 'Still to do:%s\n' "${todo//\*\*/}"
     say "To use Claude Code in Terminal, open a new Terminal window and type: claude"
     say "Log: $(tilde "$LOG_FILE")"
@@ -1417,6 +1739,7 @@ $again"
 
 cleanup() {
   stop_login
+  stop_gh_login
   detach_dmg
   ui_stop
   [ -n "$CAFFEINATE_PID" ] && kill "$CAFFEINATE_PID" 2>/dev/null
@@ -1441,11 +1764,24 @@ preview_help() {
   fi
   RC_FILE=$(rc_file_for_shell)
   FRESH_SHELL_RESULT=$(fresh_shell_claude)
+  GH_FRESH=$(fresh_shell_working gh)
+  GH_BIN=$GH_FRESH
+  local github_state=warn github_note="The GitHub CLI isn't installed yet"
+  if [ -n "$GH_BIN" ]; then
+    GH_VERSION=$("$GH_BIN" --version 2>/dev/null | head -n 1 | awk '{print $3}')
+    if gh_signed_in; then
+      GH_SIGNED_IN=1
+      github_state=success
+      github_note="gh $GH_VERSION · signed in as ${GH_ACCOUNT:-your GitHub account}"
+    else
+      github_note="gh $GH_VERSION works but isn't signed in to GitHub. Sign in later with: gh auth login --web (Hangar can also sign you in)"
+    fi
+  fi
 
   for ((i = 0; i < STEP_COUNT; i++)); do
     STEP_TRIED[$i]=""
   done
-  STEP_STATE=(success fail success success success skip pending skip)
+  STEP_STATE=(success fail success success success skip "$github_state" pending skip)
   STEP_NOTE=(
     "macOS $OS_VERSION · $CHIP_LABEL · $(basename "$LOGIN_SHELL") shell"
     "Apple's installer closed before Git was installed. It may have been cancelled or shown an error."
@@ -1453,6 +1789,7 @@ preview_help() {
     "v${CLI_VERSION:-unknown} · works in new Terminal windows"
     "Signed in to ${AUTH_ORG_NAME:-your organization}"
     "Not started: Apple's developer tools aren't installed"
+    "$github_note"
     "Needs you: check the app for a sign-in screen"
     "Skipped until the steps above are fixed"
   )
@@ -1510,7 +1847,7 @@ main() {
   [ "$UI_MODE" = app ] && USE_WINDOW=0
   printf '%sClaude setup for Mac%s (version %s)\n' "$C_BOLD" "$C_OFF" "$SETUP_VERSION"
   log "Claude setup version $SETUP_VERSION"
-  say "This installs the Claude app, Claude Code, and Apple's developer tools (for Git), then signs you in."
+  say "This installs the Claude app, Claude Code, Apple's developer tools (for Git), and the GitHub CLI, then signs you in."
   if [ "$UI_MODE" = app ]; then
     say "Keep this window open until setup finishes. Log: $(tilde "$LOG_FILE")"
     app_event steps "$(IFS='|'; printf '%s' "${STEP_TITLES[*]}")"
@@ -1552,6 +1889,7 @@ main() {
   step_signin
   step_tools_wait
   step_git
+  step_github
   step_app_signin
   step_final
   finish

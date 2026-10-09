@@ -1,8 +1,9 @@
 #!/bin/bash
 #
 # Runs claude-setup.sh against a pretend Mac: a throwaway home folder and
-# stand-in versions of curl, xcode-select, claude, git, hdiutil, codesign,
-# open, and swiftDialog. Nothing on this computer is installed or changed.
+# stand-in versions of curl, xcode-select, claude, git, gh, Homebrew, hdiutil,
+# codesign, open, and swiftDialog. Nothing on this computer is installed or
+# changed.
 #
 #   bash tests/run-tests.sh
 
@@ -26,8 +27,19 @@ count_is() { [ "$(grep -c -- "$2" "$1" 2>/dev/null)" = "$3" ]; }
 new_sandbox() {
   T=$(mktemp -d "${TMPDIR:-/tmp}/claude-setup-test.XXXXXX")
   T=$(cd "$T" && pwd -P)
-  mkdir -p "$T/home" "$T/apps" "$T/bin" "$T/state" "$T/payload"
+  mkdir -p "$T/home" "$T/apps" "$T/bin" "$T/state" "$T/payload" "$T/shells"
   write_stubs
+  # By default the GitHub CLI is already installed and signed in.
+  mkdir -p "$T/home/.local/bin"
+  cp "$T/payload/gh" "$T/home/.local/bin/gh"
+  echo testgh > "$T/state/gh_auth"
+}
+
+# put_homebrew TOOL...: a pretend Homebrew in $T/homebrew with those tools.
+put_homebrew() {
+  local tool
+  mkdir -p "$T/homebrew/bin"
+  for tool in "$@"; do cp "$T/payload/$tool" "$T/homebrew/bin/$tool"; done
 }
 
 end_sandbox() {
@@ -49,7 +61,20 @@ EOF
 
   cat > "$T/bin/dscl" <<'EOF'
 #!/bin/sh
-echo "UserShell: $(cat "$SANDBOX/state/shell" 2>/dev/null || echo /bin/zsh)"
+echo "UserShell: $(cat "$SANDBOX/state/shell" 2>/dev/null || echo "$SANDBOX/shells/zsh")"
+EOF
+
+  # zsh without the Mac's own startup files, whose path_helper would add this
+  # computer's real /usr/local/bin and /opt/homebrew/bin to new shells.
+  cat > "$T/shells/zsh" <<'EOF'
+#!/bin/sh
+exec /bin/zsh +o globalrcs "$@"
+EOF
+
+  cat > "$T/bin/uname" <<'EOF'
+#!/bin/sh
+if [ "$1" = -m ]; then cat "$SANDBOX/state/arch" 2>/dev/null || echo arm64; exit 0; fi
+exec /usr/bin/uname "$@"
 EOF
 
   cat > "$T/bin/id" <<'EOF'
@@ -99,6 +124,16 @@ case "$url" in
       exit 0
     fi
     echo "curl: (22) The requested URL returned error: 404" >&2; exit 22 ;;
+  https://api.github.com/repos/cli/cli/releases/latest)
+    printf '{\n  "url": "https://api.github.com/repos/cli/cli/releases/1",\n  "tag_name": "v2.99.0",\n  "name": "GitHub CLI 2.99.0",\n  "draft": false\n}\n' > "$out" ;;
+  https://github.com/cli/cli/releases/download/v2.99.0/gh_2.99.0_checksums.txt)
+    for f in gh_2.99.0_macOS_amd64.zip gh_2.99.0_macOS_arm64.zip; do
+      sum=$(cat "$SANDBOX/state/gh_checksum" 2>/dev/null || shasum -a 256 "$SANDBOX/payload/$f" | awk '{print $1}')
+      printf '%s  %s\n' "$sum" "$f"
+    done > "$out"
+    printf '%s  %s\n' 0123abcd gh_2.99.0_linux_amd64.tar.gz >> "$out" ;;
+  https://github.com/cli/cli/releases/download/v2.99.0/gh_2.99.0_macOS_*.zip)
+    cp "$SANDBOX/payload/$(basename "$url")" "$out" ;;
   *) echo "curl: (22) The requested URL returned error: 404" >&2; exit 22 ;;
 esac
 EOF
@@ -179,15 +214,63 @@ CFG="$HOME/.gitconfig-test"
 case "$1" in
   --version) echo "git version 2.50.1 (Apple Git-155)" ;;
   config)
-    key=$3 val=$4
+    shift
+    args=()
+    for a in "$@"; do case $a in --*) ;; *) args+=("$a") ;; esac; done
+    key=${args[0]} val=${args[1]}
     if [ -n "$val" ]; then
-      grep -v "^$key=" "$CFG" 2>/dev/null > "$CFG.tmp"
+      awk -v k="$key=" 'index($0, k) != 1' "$CFG" 2>/dev/null > "$CFG.tmp"
       echo "$key=$val" >> "$CFG.tmp"
       mv "$CFG.tmp" "$CFG"
     else
-      v=$(sed -n "s/^$key=//p" "$CFG" 2>/dev/null | head -n 1)
+      v=$(awk -v k="$key=" 'index($0, k) == 1 { print substr($0, length(k) + 1) }' "$CFG" 2>/dev/null | head -n 1)
       [ -n "$v" ] && echo "$v"
     fi ;;
+esac
+EOF
+
+  # The GitHub CLI. state/gh_auth holds the signed-in account; state/gh_login_mode
+  # is succeed (the default), fail, or hang.
+  cat > "$T/payload/gh" <<'EOF'
+#!/bin/bash
+S="$SANDBOX/state"
+case "$1" in
+  --version) printf 'gh version 2.99.0 (2026-09-01)\nhttps://github.com/cli/cli/releases/tag/v2.99.0\n' ;;
+  auth)
+    case "$2" in
+      status)
+        if [ -f "$S/gh_auth" ]; then
+          printf 'github.com\n  ✓ Logged in to github.com account %s (keyring)\n  - Token: gho_************************************\n' "$(cat "$S/gh_auth")"
+          exit 0
+        fi
+        echo "You are not logged into any GitHub hosts. To log in, run: gh auth login" >&2
+        exit 1 ;;
+      login)
+        echo "args: $* BROWSER=$BROWSER" >> "$S/gh-login.log"
+        echo "! First copy your one-time code: AB12-CD34" >&2
+        echo "Open this URL to continue in your web browser: https://github.com/login/device" >&2
+        case $(cat "$S/gh_login_mode" 2>/dev/null) in
+          hang) exec sleep 600 ;;
+          fail) sleep 2; echo "error: access_denied" >&2; exit 1 ;;
+        esac
+        sleep 2
+        echo testgh > "$S/gh_auth"
+        echo "✓ Authentication complete." >&2
+        echo "✓ Logged in as testgh" >&2 ;;
+      setup-git)
+        echo "setup-git $*" >> "$S/gh-setup-git.log"
+        echo 'credential.https://github.com.helper=!gh auth git-credential' >> "$HOME/.gitconfig-test" ;;
+    esac ;;
+  api) cat "$S/gh_auth" ;;
+esac
+EOF
+
+  cat > "$T/payload/brew" <<'EOF'
+#!/bin/bash
+case "$1" in
+  shellenv) echo "export PATH=\"$(cd "$(dirname "$0")" && pwd):\$PATH\"" ;;
+  --version) echo "Homebrew 4.6.0" ;;
+  *) echo "brew $*" >> "$SANDBOX/state/brew.log" ;;
 esac
 EOF
 
@@ -206,6 +289,11 @@ EOF
 
   cat > "$T/bin/codesign" <<'EOF'
 #!/bin/sh
+# The GitHub CLI has its own team, in state/gh_teamid.
+case "$*" in
+  *--verify*/bin/gh) [ -f "$SANDBOX/state/gh_badsig" ] && exit 1; exit 0 ;;
+  -dv*/bin/gh) echo "TeamIdentifier=$(cat "$SANDBOX/state/gh_teamid" 2>/dev/null || echo VEKTX9H2N7)" >&2; exit 0 ;;
+esac
 case "$1" in
   --verify) [ -f "$SANDBOX/state/badsig" ] && exit 1; exit 0 ;;
   -dv) echo "TeamIdentifier=$(cat "$SANDBOX/state/teamid" 2>/dev/null || echo Q6L2SF6YDW)" >&2 ;;
@@ -247,7 +335,16 @@ printf '%s\n' "$@" > "$S/dialog-final-args"
 exit "$(cat "$S/button" 2>/dev/null || echo 0)"
 EOF
 
-  chmod +x "$T/bin/"* "$T/payload/"* "$T/Install Command Line Developer Tools"
+  chmod +x "$T/bin/"* "$T/payload/"* "$T/shells/"* "$T/Install Command Line Developer Tools"
+
+  # GitHub's downloads: a real zip for each chip, with gh in bin/.
+  local arch dir
+  for arch in arm64 amd64; do
+    dir="$T/payload/zips/gh_2.99.0_macOS_$arch"
+    mkdir -p "$dir/bin"
+    cp "$T/payload/gh" "$dir/bin/gh"
+    ditto -c -k --keepParent "$dir" "$T/payload/gh_2.99.0_macOS_$arch.zip"
+  done
 }
 
 # run_setup [extra VAR=value ...]: runs the tool in the sandbox. With
@@ -262,6 +359,7 @@ run_setup() {
     CLAUDE_SETUP_STUB_PATH="$T/bin" \
     CLAUDE_SETUP_WINDOW=0 \
     CLAUDE_SETUP_APPS_DIR="$T/apps" \
+    CLAUDE_SETUP_HOMEBREW_DIRS="$T/homebrew" \
     CLAUDE_SETUP_POLL_SECS=1 \
     CLAUDE_SETUP_DEVTOOLS_APPEAR=8 \
     CLAUDE_SETUP_ASSUME_YES=1 \
@@ -297,6 +395,10 @@ check "sets Git's email from the sign-in" [ "$(gitcfg user.email)" = "tester@exa
 check "opens the Claude app for sign-in" has "$T/state/open.log" "-a $T/apps/Claude.app"
 check "lists the app sign-in as still to do" has "$T/output.txt" "Still to do"
 check "doesn't open the help message" lacks "$T/state/open.log" "claude://"
+check "uses the GitHub CLI new Terminal windows find" has "$T/output.txt" "gh 2.99.0 · signed in as testgh"
+check "doesn't download the GitHub CLI" lacks "$T/state/curl.log" "cli/cli"
+check "doesn't start a GitHub sign-in" test ! -e "$T/state/gh-login.log"
+check "sets Git to use the GitHub sign-in" has "$T/home/.gitconfig-test" "credential.https://github.com.helper="
 
 echo "2. Running it again on the same Mac"
 run_setup
@@ -354,10 +456,12 @@ check "puts the message on the clipboard" has "$T/state/clipboard" "Claude setup
 check "message names the failed step" has "$T/state/clipboard" "Sign in to Claude Code:"
 check "message includes the team's ground rules" has "$T/state/clipboard" "Ground rules from my team:"
 check "message names no contact person" lacks "$T/state/clipboard" "contact"
-check "message gives the exact command to run setup again" has "$T/state/clipboard" "pasting this into Terminal: bash '"
+check "message gives the exact command to run setup again" has "$T/state/clipboard" "pasting this into Terminal: bash '\{0,1\}[~/].*claude-setup.sh"
 check "message hides the home folder path" lacks "$T/state/clipboard" "$T/home"
 check "message hides the sign-in email" lacks "$T/state/clipboard" "tester@example.edu"
 check "message hides the sign-in link's secret" lacks "$T/state/clipboard" "secretstate123"
+check "message describes the GitHub CLI" has "$T/state/clipboard" "GitHub CLI: gh 2.99.0 at ~/.local/bin/gh"
+check "message hides the GitHub account" lacks "$T/state/clipboard" "testgh"
 check "message fits in Claude's limit" [ "$(help_text | wc -c)" -le 14000 ]
 check "saves a copy of the message" sh -c "ls '$T/home/Library/Application Support/ClaudeSetup/logs'/*/help-message.txt >/dev/null 2>&1"
 end_sandbox
@@ -417,13 +521,13 @@ echo "12. Setup window: progress, then the final screen"
 new_sandbox
 run_setup CLAUDE_SETUP_WINDOW=1 CLAUDE_SETUP_DIALOG_BIN="$T/bin/fakedialog"
 check "finishes successfully" exit_is 0
-check "opens the progress window with all 8 steps" [ "$(grep -c '^--listitem$' "$T/state/dialog-progress-args")" = 8 ]
+check "opens the progress window with all 9 steps" [ "$(grep -c '^--listitem$' "$T/state/dialog-progress-args")" = 9 ]
 check "puts options without a value last (swiftDialog needs this)" [ "$(tail -n 2 "$T/state/dialog-progress-args" | tr '\n' ' ')" = "--button1disabled --moveable " ]
 check "final screen also ends with its no-value option" [ "$(tail -n 1 "$T/state/dialog-final-args")" = "--moveable" ]
-check "sends list updates to the window" has "$T/state/dialog-commands" "^listitem: index: 7, status: success"
+check "sends list updates to the window" has "$T/state/dialog-commands" "^listitem: index: 8, status: success"
 check "list updates have no extra commas or colons" sh -c "! grep '^listitem:' '$T/state/dialog-commands' | sed 's/^listitem: index: [0-9]*, status: [a-z]*, statustext: //' | grep -q '[,:]'"
 check "uses only valid statuses" sh -c "! grep '^listitem:' '$T/state/dialog-commands' | grep -vqE 'status: (wait|success|fail|pending|error),'"
-check "shows not-started steps as waiting, not spinning" has "$T/state/dialog-commands" "^listitem: index: 7, status: pending, statustext: $"
+check "shows not-started steps as waiting, not spinning" has "$T/state/dialog-commands" "^listitem: index: 8, status: pending, statustext: $"
 check "shows the step that's running as a spinner" has "$T/state/dialog-commands" "^listitem: index: 2, status: wait, statustext: Checking"
 check "flags steps that need the person" has "$T/state/dialog-commands" "^listitem: index: 4, status: error, statustext: Needs you — sign in using your browser"
 check "progress text follows the current step" has "$T/state/dialog-commands" "^progresstext: Install the Claude app"
@@ -532,7 +636,7 @@ echo "22. Inside the Set Up Claude app: a fresh Mac"
 new_sandbox
 run_setup CLAUDE_SETUP_UI=app CLAUDE_SETUP_WINDOW=1 < /dev/null
 check "finishes successfully" exit_is 0
-check "sends the app the list of steps" has "$T/output.txt" "^@@steps${TAB}Check your Mac|Install Git"
+check "sends the app the list of steps" has "$T/output.txt" "^@@steps${TAB}Check your Mac|Install Git.*|Set up Git|Set up GitHub|Sign in to the Claude app|Final check$"
 check "sends step updates" has "$T/output.txt" "^@@step${TAB}2${TAB}success${TAB}Added to"
 check "sends the sign-in instructions" has "$T/output.txt" "^@@message${TAB}.*open the sign-in page"
 check "sends the ready screen" has "$T/output.txt" "^@@final${TAB}success${TAB}Claude is ready${TAB}"
@@ -588,6 +692,115 @@ run_setup
 check "finishes successfully" exit_is 0
 check "doesn't mention a newer version" lacks "$T/output.txt" "A newer version"
 end_sandbox
+
+echo "28. The GitHub CLI is missing: GitHub's download, then sign-in (in the app)"
+new_sandbox
+rm "$T/home/.local/bin/gh" "$T/state/gh_auth"
+run_setup CLAUDE_SETUP_UI=app CLAUDE_SETUP_WINDOW=1 < /dev/null
+check "finishes successfully" exit_is 0
+check "asks GitHub for the newest version" has "$T/state/curl.log" "api.github.com/repos/cli/cli/releases/latest"
+check "downloads the Apple silicon build" has "$T/state/curl.log" "gh_2.99.0_macOS_arm64.zip"
+check "doesn't download the Intel build" lacks "$T/state/curl.log" "macOS_amd64"
+check "gets GitHub's checksums" has "$T/state/curl.log" "gh_2.99.0_checksums.txt"
+check "installs gh in ~/.local/bin" test -x "$T/home/.local/bin/gh"
+check "signs in on the web" has "$T/state/gh-login.log" "--hostname github.com --web"
+check "keeps gh from opening a browser itself" has "$T/state/gh-login.log" "BROWSER=/usr/bin/true"
+check "waits for the person with the code" has "$T/output.txt" "^@@step${TAB}6${TAB}pending${TAB}Needs you: enter the code AB12-CD34 on GitHub"
+check "shows the code in the window" has "$T/output.txt" "^@@message${TAB}.*AB12-CD34"
+check "puts the code on the clipboard" [ "$(cat "$T/state/clipboard")" = AB12-CD34 ]
+check "opens GitHub's code page" has "$T/state/open.log" "https://github.com/login/device"
+check "sets Git to use the GitHub sign-in" count_is "$T/state/gh-setup-git.log" "setup-git" 1
+check "reports the account" has "$T/output.txt" "^@@step${TAB}6${TAB}success${TAB}gh 2.99.0 · signed in as testgh"
+run_setup
+check "running it again finishes successfully" exit_is 0
+check "doesn't download gh again" count_is "$T/state/curl.log" "gh_2.99.0_macOS_arm64.zip" 1
+check "doesn't sign in to GitHub again" count_is "$T/state/gh-login.log" "args" 1
+check "doesn't set up Git for GitHub again" count_is "$T/state/gh-setup-git.log" "setup-git" 1
+end_sandbox
+
+echo "29. An Intel Mac with a gh that new Terminal windows can't find"
+new_sandbox
+echo x86_64 > "$T/state/arch"
+put_homebrew gh
+rm "$T/home/.local/bin/gh"
+run_setup
+check "finishes successfully" exit_is 0
+check "reports an Intel Mac" has "$T/output.txt" "Intel"
+check "downloads the Intel build" has "$T/state/curl.log" "gh_2.99.0_macOS_amd64.zip"
+check "doesn't download the Apple silicon build" lacks "$T/state/curl.log" "macOS_arm64"
+check "installs gh in ~/.local/bin" test -x "$T/home/.local/bin/gh"
+check "new Terminal windows find the new gh" has "$T/output.txt" "Set up GitHub — gh 2.99.0"
+end_sandbox
+
+echo "30. Homebrew is installed but new Terminal windows don't find it"
+new_sandbox
+put_homebrew gh brew
+rm "$T/home/.local/bin/gh"
+printf 'export EDITOR=nano\n' > "$T/home/.zprofile"
+run_setup
+check "finishes successfully" exit_is 0
+check "adds Homebrew's line to ~/.zprofile" has "$T/home/.zprofile" "^eval \"\$($T/homebrew/bin/brew shellenv)\"$"
+check "marks the line as added by setup" has "$T/home/.zprofile" "^# >>> Claude setup (Homebrew) >>>$"
+check "saves a backup first" sh -c "ls '$T/home'/.zprofile.before-claude-setup-* >/dev/null 2>&1"
+check "keeps the existing ~/.zprofile content" has "$T/home/.zprofile" "^export EDITOR=nano$"
+check "says what it changed" has "$T/home/Library/Application Support/ClaudeSetup/logs"/*/setup.log "added Homebrew's PATH line to ~/.zprofile"
+check "uses Homebrew's gh without downloading one" lacks "$T/state/curl.log" "cli/cli"
+check "doesn't put another gh in ~/.local/bin" test ! -e "$T/home/.local/bin/gh"
+check "never asks Homebrew to install anything" lacks "$T/state/brew.log" "install"
+run_setup
+check "running it again finishes successfully" exit_is 0
+check "doesn't add Homebrew's line twice" count_is "$T/home/.zprofile" "brew shellenv" 1
+end_sandbox
+
+echo "31. The GitHub CLI download doesn't match GitHub's checksum"
+new_sandbox
+rm "$T/home/.local/bin/gh"
+echo 0000000000000000000000000000000000000000000000000000000000000000 > "$T/state/gh_checksum"
+run_setup
+check "exits with an error" exit_is 1
+check "explains the checksum problem" has "$T/output.txt" "Set up GitHub — The GitHub CLI download didn't match GitHub's checksum"
+check "doesn't install gh" test ! -e "$T/home/.local/bin/gh"
+check "skips the final check" has "$T/output.txt" "Final check — Skipped"
+check "help message names the GitHub step" has "$T/state/clipboard" "Set up GitHub: The GitHub CLI download"
+end_sandbox
+
+echo "32. The GitHub CLI download isn't signed by GitHub"
+new_sandbox
+rm "$T/home/.local/bin/gh"
+echo XXXXXXXXXX > "$T/state/gh_teamid"
+run_setup
+check "exits with an error" exit_is 1
+check "explains the signature problem" has "$T/output.txt" "isn't signed by GitHub, so it wasn't installed"
+check "doesn't install gh" test ! -e "$T/home/.local/bin/gh"
+check "logs which team signed it" has "$T/home/Library/Application Support/ClaudeSetup/logs"/*/setup.log "signed by team 'XXXXXXXXXX'"
+end_sandbox
+
+echo "33. The GitHub sign-in never finishes"
+new_sandbox
+rm "$T/state/gh_auth"
+echo hang > "$T/state/gh_login_mode"
+run_setup CLAUDE_SETUP_GITHUB_TIMEOUT=4
+check "finishes successfully" exit_is 0
+check "says Claude is ready" has "$T/output.txt" "Claude is ready"
+check "explains the sign-in didn't finish" has "$T/output.txt" "GitHub sign-in didn't finish"
+check "says how to sign in later" has "$T/output.txt" "Sign in later with: gh auth login --web"
+check "the final check only warns about it" has "$T/output.txt" "Final check — Everything works except the GitHub sign-in"
+check "doesn't open the help message" lacks "$T/state/open.log" "claude://"
+end_sandbox
+
+echo "34. Someone turns down the GitHub sign-in"
+new_sandbox
+rm "$T/state/gh_auth"
+echo fail > "$T/state/gh_login_mode"
+run_setup
+check "finishes successfully" exit_is 0
+check "explains the sign-in stopped" has "$T/output.txt" "GitHub sign-in stopped before it finished"
+check "doesn't set up Git for GitHub" test ! -e "$T/state/gh-setup-git.log"
+end_sandbox
+
+echo "35. The help message hides GitHub tokens and the GitHub account"
+cleaned=$(CLAUDE_SETUP_SOURCE_ONLY=1 /bin/bash -c 'source "$1"; GH_ACCOUNT=octotester; redact "gho_abc123 ghp_Def456 ghu_x ghs_y ghr_z github_pat_11AB_cd9 octotester"' _ "$SCRIPT")
+check "hides every kind of GitHub token" [ "$cleaned" = "<github-token> <github-token> <github-token> <github-token> <github-token> <github-token> <github-account>" ]
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAILS"
 [ "$FAILS" = 0 ]

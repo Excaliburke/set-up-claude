@@ -1,6 +1,6 @@
 # Set Up Claude
 
-Sets up a Mac for Claude: the Claude app, Claude Code (the `claude` command in Terminal), and Apple's developer tools, which include Git. Every step shows in one window. If something fails, it opens Claude with a message describing what happened, so the person can troubleshoot with Claude's help.
+Sets up a Mac for Claude: the Claude app, Claude Code (the `claude` command in Terminal), Apple's developer tools, which include Git, and the GitHub CLI (`gh`). Every step shows in one window. If something fails, it opens Claude with a message describing what happened, so the person can troubleshoot with Claude's help.
 
 It's built for Northeastern University's Claude Enterprise accounts. The organization and plan it checks for are settings, so other teams can change them.
 
@@ -23,7 +23,7 @@ The app is signed with the Developer ID "Brian Burke (YX5UZDLY5F)" and notarized
 
 ## What happens
 
-The window lists eight steps:
+The window lists nine steps:
 
 1. Check your Mac
 2. Install Git (Apple's developer tools)
@@ -31,13 +31,15 @@ The window lists eight steps:
 4. Install Claude Code for Terminal
 5. Sign in to Claude Code
 6. Set up Git
-7. Sign in to the Claude app
-8. Final check
+7. Set up GitHub
+8. Sign in to the Claude app
+9. Final check
 
-Each step shows gray dots while it waits its turn, a spinner while it runs, a hand when it needs the person, and a green check or red ✗ when it's done. Two steps need the person, and the window says what to do when they come up:
+Each step shows gray dots while it waits its turn, a spinner while it runs, a hand when it needs the person, and a green check or red ✗ when it's done. Three steps need the person, and the window says what to do when they come up:
 
 - **Apple's window:** click Install, then Agree. The download takes 5 to 15 minutes, and the other steps keep going meanwhile.
 - **The browser:** sign in with their Northeastern account. If the browser doesn't open, the window shows a link.
+- **GitHub:** if the GitHub CLI isn't signed in yet, GitHub's page opens. The person signs in to GitHub, enters the code the window shows (it's also on the clipboard), and approves GitHub CLI. Claude doesn't need GitHub, so someone without an account can leave it: setup moves on after 10 minutes and only warns.
 
 **Details** shows the setup's own output, like a Terminal window would. While setup runs, the window can't be closed by accident, and quitting asks first.
 
@@ -69,12 +71,12 @@ When a step fails, the tool writes a message for Claude that covers:
 
 - which step failed, the exact error, and what the tool tried
 - every step's result
-- facts about the Mac: macOS version, chip, shell, admin rights, disk space, network, other copies of Claude Code, sign-in state
+- facts about the Mac: macOS version, chip, shell, admin rights, disk space, network, other copies of Claude Code, the GitHub CLI and Homebrew, sign-in state
 - the last lines of the log for the failed step
 - what the tool changed, such as startup-file edits
 - ground rules: no API keys or personal accounts, no `sudo npm`, say plainly when something needs admin rights or an account change, and how to run setup again once it's fixed
 
-Before it goes anywhere, the message is cleaned: the person's username and home folder, email addresses, API keys, sign-in secrets, and IDs are replaced with placeholders. It's capped at 12,000 characters (Claude's link limit is about 14,000).
+Before it goes anywhere, the message is cleaned: the person's username and home folder, email addresses, GitHub account name, API keys, GitHub tokens, sign-in secrets, and IDs are replaced with placeholders. It's capped at 12,000 characters (Claude's link limit is about 14,000).
 
 Clicking **Get help from Claude** opens a new chat in the Claude app with the message filled in but not sent, so the person reads it first. The message also goes on the clipboard and is saved to `~/Library/Application Support/ClaudeSetup/logs/<run>/help-message.txt`. If the Claude app didn't install, claude.ai opens in the browser instead and the person pastes with Command-V.
 
@@ -137,11 +139,13 @@ If the Terminal version's window can't be set up for any reason, it shows the sa
 - **Adds** a marked block to the shell startup file so new Terminal windows find `claude`. That's `~/.zshrc` for zsh. For bash it's the first of `~/.bash_profile`, `~/.bash_login` or `~/.profile` that exists. Fish gets a file in `conf.d`.
 - **Turns off** (comments out, never deletes) `ANTHROPIC_API_KEY` lines and old `alias claude=…/.claude/local` lines in shell startup files. Before any edit, it saves a backup next to the file, named `.before-claude-setup-<date>`.
 - **Sets** Git's name and email if they're empty, using the Mac account name and the Claude sign-in email.
+- **Installs the GitHub CLI** (`gh`) if new Terminal windows don't find a working one. Some apps, such as Hangar, sign in to GitHub through it. It always uses GitHub's own download for the Mac's chip, copied into `~/.local/bin`, never Homebrew. Then it signs `gh` in to github.com and runs `gh auth setup-git` so Git uses that sign-in (after a backup of `~/.gitconfig`).
+- **Adds Homebrew's line** (`eval "$(/opt/homebrew/bin/brew shellenv)"`) when Homebrew is installed but new Terminal windows don't find it. That's `~/.zprofile` for zsh, as Homebrew recommends, the same file as the PATH block for bash, and a file in `conf.d` for fish. It's marked, backed up first, and added only once. The tool never installs Homebrew.
 - **Signs out of Claude Code** if it's signed in to a different account, then asks the person to sign in again, up to two tries.
 - **Downloads swiftDialog** (Terminal version only) into `~/Library/Application Support/ClaudeSetup` to draw the window. The tool checks that it's signed by its developer (team `PWA5E9TQ59`) and approved by Apple before using it. Nothing is installed system-wide.
 - **Keeps logs** in `~/Library/Application Support/ClaudeSetup/logs`.
 
-Every download is checked before it's used: the Claude app must be signed by Anthropic (team `Q6L2SF6YDW`), and the installer must be a script, not a web page.
+Every download is checked before it's used: the Claude app must be signed by Anthropic (team `Q6L2SF6YDW`), the installer must be a script, not a web page, and the GitHub CLI must match GitHub's published checksum and be signed by GitHub (team `VEKTX9H2N7`). If the GitHub CLI can't be installed, that step fails like any other. If only the GitHub sign-in doesn't finish, setup still finishes and says how to sign in later (`gh auth login --web`).
 
 ## What it doesn't do
 
@@ -191,7 +195,7 @@ bash tests/run-tests.sh
 bash tests/test-app.sh
 ```
 
-`run-tests.sh` runs the whole script against a pretend Mac: a throwaway home folder plus stand-ins for `curl`, `xcode-select`, `claude`, `git`, `hdiutil`, `codesign`, `open`, and the window. Nothing on the computer running it is installed or changed. It takes about three minutes and covers:
+`run-tests.sh` runs the whole script against a pretend Mac: a throwaway home folder plus stand-ins for `curl`, `xcode-select`, `claude`, `git`, `gh`, Homebrew, `hdiutil`, `codesign`, `open`, and the window. Nothing on the computer running it is installed or changed. It takes about three minutes and covers:
 
 - a fresh Mac, and running it again
 - bash users
@@ -208,6 +212,7 @@ bash tests/test-app.sh
 - an older downloaded copy noticing a newer release
 - the help preview
 - running inside the app: progress reports, and the Get help from Claude and Close choices
+- the GitHub CLI: already working, downloaded for Apple silicon or Intel, found but not on PATH, Homebrew not on PATH, a download with the wrong checksum or signature, and a GitHub sign-in that's turned down or never finishes
 
 `test-app.sh` needs a signed, notarized build in `dist/`. It opens the real app for about a minute:
 

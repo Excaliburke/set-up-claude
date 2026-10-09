@@ -35,6 +35,7 @@ env -i \
   SANDBOX="$T" \
   CLAUDE_SETUP_STUB_PATH="$T/bin" \
   CLAUDE_SETUP_APPS_DIR="$T/apps" \
+  CLAUDE_SETUP_HOMEBREW_DIRS="$T/homebrew" \
   CLAUDE_SETUP_POLL_SECS=1 \
   CLAUDE_SETUP_DEVTOOLS_APPEAR=8 \
   "$BIN" --start --choose=help > "$T/app-output.txt" 2>&1 &
