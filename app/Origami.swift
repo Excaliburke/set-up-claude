@@ -53,9 +53,9 @@ final class SetupRunner: ObservableObject {
         "Install the Claude app",
         "Install Claude Code for Terminal",
         "Sign in to Claude Code",
+        "Sign in to the Claude app",
         "Set up Git",
         "Set up GitHub",
-        "Sign in to the Claude app",
         "Final check",
     ]
 

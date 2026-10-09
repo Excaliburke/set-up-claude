@@ -110,12 +110,14 @@ STEP_TITLES=(
   "Install the Claude app"
   "Install Claude Code for Terminal"
   "Sign in to Claude Code"
+  "Sign in to the Claude app"
   "Set up Git"
   "Set up GitHub"
-  "Sign in to the Claude app"
   "Final check"
 )
-S_MAC=0; S_TOOLS=1; S_APP=2; S_CLI=3; S_SIGNIN=4; S_GIT=5; S_GITHUB=6; S_APPSIGNIN=7; S_FINAL=8
+# Claude is signed in on both sides before the steps that can go wrong, so
+# "Get help from Claude" opens an app that's ready to answer.
+S_MAC=0; S_TOOLS=1; S_APP=2; S_CLI=3; S_SIGNIN=4; S_APPSIGNIN=5; S_GIT=6; S_GITHUB=7; S_FINAL=8
 STEP_COUNT=${#STEP_TITLES[@]}
 
 # States: wait, progress, pending (needs the person), success, warn, fail, skip.
@@ -367,7 +369,7 @@ set_step() {
 intro_message() {
   printf '%s' "**Setting up your tools.** This takes about 10 to 20 minutes, and most of it runs by itself.
 
-A few steps need you when they come up: clicking **Install** in Apple's window, **signing in** with your $ORG_LABEL account in your browser, and **signing in to GitHub**.
+A few steps need you when they come up: clicking **Install** in Apple's window, **signing in** with your $ORG_LABEL account in your browser and then in the Claude app, and **signing in to GitHub**.
 
 Keep this window open. You can keep working while it runs."
   if [ -n "$NEWER_VERSION" ]; then
@@ -1402,12 +1404,16 @@ step_app_signin() {
     set_step $i skip "Not started: the Claude app didn't install"
     return
   fi
-  if [ "$TOOLS_NEW" = 1 ] && claude_app_running; then
-    set_step $i pending "Needs you: quit and reopen the Claude app"
-    return
-  fi
   open -a "$APP_PATH" >> "$STEP_LOG" 2>&1
   set_step $i pending "Needs you: check the app for a sign-in screen"
+}
+
+# The Claude app opened before Apple's tools finished doesn't see Git until it
+# restarts. Said at the end, once Git is in.
+app_reopen_note() {
+  [ "$TOOLS_NEW" = 1 ] && [ "${STEP_STATE[$S_TOOLS]}" = success ] && claude_app_running || return 0
+  STEP_TRIED[$S_APPSIGNIN]="${STEP_TRIED[$S_APPSIGNIN]}; Apple's tools were installed after it opened"
+  set_step $S_APPSIGNIN pending "Needs you: sign in if you haven't, then quit and reopen the Claude app so it finds Git"
 }
 
 step_final() {
@@ -1781,16 +1787,16 @@ preview_help() {
   for ((i = 0; i < STEP_COUNT; i++)); do
     STEP_TRIED[$i]=""
   done
-  STEP_STATE=(success fail success success success skip "$github_state" pending skip)
+  STEP_STATE=(success fail success success success pending skip "$github_state" skip)
   STEP_NOTE=(
     "macOS $OS_VERSION · $CHIP_LABEL · $(basename "$LOGIN_SHELL") shell"
     "Apple's installer closed before Git was installed. It may have been cancelled or shown an error."
     "Already installed in $(tilde "$(dirname "${APP_PATH:-$APPS_DIR/Claude.app}")")"
     "v${CLI_VERSION:-unknown} · works in new Terminal windows"
     "Signed in to ${AUTH_ORG_NAME:-your organization}"
+    "Needs you: check the app for a sign-in screen"
     "Not started: Apple's developer tools aren't installed"
     "$github_note"
-    "Needs you: check the app for a sign-in screen"
     "Skipped until the steps above are fixed"
   )
   STEP_TRIED[$S_TOOLS]="Checked for Apple's Command Line Tools (xcode-select -p and its git), then ran xcode-select --install, which opens Apple's installer window"
@@ -1887,10 +1893,11 @@ main() {
   step_app
   step_cli
   step_signin
+  step_app_signin
   step_tools_wait
   step_git
   step_github
-  step_app_signin
+  app_reopen_note
   step_final
   finish
 }

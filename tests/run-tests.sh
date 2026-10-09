@@ -305,6 +305,16 @@ EOF
 printf '%s\n' "$*" >> "$SANDBOX/state/open.log"
 EOF
 
+  # The Claude app counts as running when state/app_running exists; any other
+  # process (Apple's installer) is looked for for real.
+  cat > "$T/bin/pgrep" <<'EOF'
+#!/bin/sh
+case "$*" in
+  *Claude.app*) [ -f "$SANDBOX/state/app_running" ] ;;
+  *) exec /usr/bin/pgrep "$@" ;;
+esac
+EOF
+
   cat > "$T/bin/pbcopy" <<'EOF'
 #!/bin/sh
 cat > "$SANDBOX/state/clipboard"
@@ -543,6 +553,7 @@ run_setup CLAUDE_SETUP_WINDOW=1 CLAUDE_SETUP_DIALOG_BIN="$T/bin/fakedialog" CLAU
 check "exits with an error" exit_is 1
 check "shows the Get help from Claude button" has "$T/state/dialog-final-args" "Get help from Claude"
 check "opens Claude after the click" has "$T/state/open.log" "claude://claude.ai/new?q="
+check "the Claude app was opened for sign-in before the failure" [ "$(grep -n -- "-a $T/apps/Claude.app" "$T/state/open.log" | head -n 1 | cut -d: -f1)" -lt "$(grep -n -- "claude://" "$T/state/open.log" | head -n 1 | cut -d: -f1)" ]
 end_sandbox
 
 echo "14. Setup window: failure, then Close"
@@ -636,8 +647,21 @@ echo "22. Inside the Origami app: a fresh Mac"
 new_sandbox
 run_setup CLAUDE_SETUP_UI=app CLAUDE_SETUP_WINDOW=1 < /dev/null
 check "finishes successfully" exit_is 0
-check "sends the app the list of steps" has "$T/output.txt" "^@@steps${TAB}Check your Mac|Install Git.*|Set up Git|Set up GitHub|Sign in to the Claude app|Final check$"
+check "sends the app the list of steps" has "$T/output.txt" "^@@steps${TAB}Check your Mac|Install Git.*|Sign in to the Claude app|Set up Git|Set up GitHub|Final check$"
 check "sends step updates" has "$T/output.txt" "^@@step${TAB}2${TAB}success${TAB}Added to"
+# Claude has to be ready before the steps that can fail, or Get help from Claude has nowhere to go.
+first_line() { grep -n -- "$2" "$1" | head -n 1 | cut -d: -f1; }
+check "opens the Claude app for sign-in before setting up Git" [ "$(first_line "$T/output.txt" "^@@step${TAB}5${TAB}pending${TAB}Needs you: check the app")" -lt "$(first_line "$T/output.txt" "^@@step${TAB}6${TAB}progress")" ]
+check "and after Claude Code is signed in" [ "$(first_line "$T/output.txt" "^@@step${TAB}4${TAB}success")" -lt "$(first_line "$T/output.txt" "^@@step${TAB}5${TAB}pending")" ]
+check "doesn't ask to reopen an app that isn't running" lacks "$T/output.txt" "quit and reopen"
+end_sandbox
+
+echo "22b. Inside the app: the Claude app is open when Apple's tools arrive"
+new_sandbox
+touch "$T/state/app_running"
+run_setup CLAUDE_SETUP_UI=app CLAUDE_SETUP_WINDOW=1 < /dev/null
+check "finishes successfully" exit_is 0
+check "asks to quit and reopen the Claude app so it finds Git" has "$T/output.txt" "^@@step${TAB}5${TAB}pending${TAB}Needs you: sign in if you haven't, then quit and reopen the Claude app so it finds Git"
 check "sends the sign-in instructions" has "$T/output.txt" "^@@message${TAB}.*open the sign-in page"
 check "sends the ready screen" has "$T/output.txt" "^@@final${TAB}success${TAB}Your tools are ready${TAB}"
 check "doesn't download swiftDialog (the app draws the window)" lacks "$T/state/curl.log" "github.com"
@@ -705,12 +729,12 @@ check "gets GitHub's checksums" has "$T/state/curl.log" "gh_2.99.0_checksums.txt
 check "installs gh in ~/.local/bin" test -x "$T/home/.local/bin/gh"
 check "signs in on the web" has "$T/state/gh-login.log" "--hostname github.com --web"
 check "keeps gh from opening a browser itself" has "$T/state/gh-login.log" "BROWSER=/usr/bin/true"
-check "waits for the person with the code" has "$T/output.txt" "^@@step${TAB}6${TAB}pending${TAB}Needs you: enter the code AB12-CD34 on GitHub"
+check "waits for the person with the code" has "$T/output.txt" "^@@step${TAB}7${TAB}pending${TAB}Needs you: enter the code AB12-CD34 on GitHub"
 check "shows the code in the window" has "$T/output.txt" "^@@message${TAB}.*AB12-CD34"
 check "puts the code on the clipboard" [ "$(cat "$T/state/clipboard")" = AB12-CD34 ]
 check "opens GitHub's code page" has "$T/state/open.log" "https://github.com/login/device"
 check "sets Git to use the GitHub sign-in" count_is "$T/state/gh-setup-git.log" "setup-git" 1
-check "reports the account" has "$T/output.txt" "^@@step${TAB}6${TAB}success${TAB}gh 2.99.0 · signed in as testgh"
+check "reports the account" has "$T/output.txt" "^@@step${TAB}7${TAB}success${TAB}gh 2.99.0 · signed in as testgh"
 run_setup
 check "running it again finishes successfully" exit_is 0
 check "doesn't download gh again" count_is "$T/state/curl.log" "gh_2.99.0_macOS_arm64.zip" 1

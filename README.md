@@ -38,15 +38,17 @@ The window lists nine steps:
 3. Install the Claude app
 4. Install Claude Code for Terminal
 5. Sign in to Claude Code
-6. Set up Git
-7. Set up GitHub
-8. Sign in to the Claude app
+6. Sign in to the Claude app
+7. Set up Git
+8. Set up GitHub
 9. Final check
+
+Claude comes first on purpose. Both Claude Code and the Claude app are signed in before Git and GitHub, the steps most likely to go wrong, so **Get help from Claude** opens an app that's ready to help. Apple's tools keep downloading meanwhile. If they were installed during this run, the end asks the person to quit and reopen the Claude app so it finds Git.
 
 Each step shows gray dots while it waits its turn, a spinner while it runs, a hand when it needs the person, and a green check or red ✗ when it's done. Three steps need the person, and the window says what to do when they come up:
 
 - **Apple's window:** click Install, then Agree. The download takes 5 to 15 minutes, and the other steps keep going meanwhile.
-- **The browser:** sign in with their Northeastern account. If the browser doesn't open, the window shows a link.
+- **The browser, then the Claude app:** sign in with their Northeastern account. If the browser doesn't open, the window shows a link. The Claude app opens next with its own sign-in screen.
 - **GitHub:** if the GitHub CLI isn't signed in yet, GitHub's page opens. The person signs in to GitHub, enters the code the window shows (it's also on the clipboard), and approves GitHub CLI. Claude doesn't need GitHub, so someone without an account can leave it: setup moves on after 10 minutes and only warns.
 
 **Details** shows the setup's own output, like a Terminal window would. While setup runs, the window can't be closed by accident, and quitting asks first.
